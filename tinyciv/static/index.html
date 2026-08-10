@@ -7,10 +7,11 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="TinyCiv">
+  <base href="__TINYCIV_BASE__">
   <title>TinyCiv</title>
-  <link rel="manifest" href="/manifest.json">
-  <link rel="apple-touch-icon" href="/icon-192.png">
-  <link rel="stylesheet" href="/app.css">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="stylesheet" href="app.css">
 </head>
 <body>
   <main class="shell">
@@ -40,30 +41,12 @@
     <section>
       <p class="section-title">CIVILIZATION AT A GLANCE</p>
       <div class="stats">
-        <article class="stat paper">
-          <span>Population</span>
-          <strong id="population">—</strong>
-        </article>
-        <article class="stat paper">
-          <span>Food</span>
-          <strong id="food">—</strong>
-        </article>
-        <article class="stat paper">
-          <span>Health</span>
-          <strong id="health">—</strong>
-        </article>
-        <article class="stat paper">
-          <span>Morale</span>
-          <strong id="morale">—</strong>
-        </article>
-        <article class="stat paper">
-          <span>Knowledge</span>
-          <strong id="knowledge">—</strong>
-        </article>
-        <article class="stat paper">
-          <span>Stability</span>
-          <strong id="stability">—</strong>
-        </article>
+        <article class="stat paper"><span>Population</span><strong id="population">—</strong></article>
+        <article class="stat paper"><span>Food</span><strong id="food">—</strong></article>
+        <article class="stat paper"><span>Health</span><strong id="health">—</strong></article>
+        <article class="stat paper"><span>Morale</span><strong id="morale">—</strong></article>
+        <article class="stat paper"><span>Knowledge</span><strong id="knowledge">—</strong></article>
+        <article class="stat paper"><span>Stability</span><strong id="stability">—</strong></article>
       </div>
     </section>
 
@@ -86,11 +69,9 @@
       </div>
     </details>
 
-    <footer>
-      One real hour = one TinyCiv year. The observer watches. TinyCiv decides.
-    </footer>
+    <footer>One real hour = one TinyCiv year. The observer watches. TinyCiv decides.</footer>
   </main>
 
-  <script src="/app.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>

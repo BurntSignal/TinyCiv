@@ -1,5 +1,5 @@
 name: "TinyCiv"
-version: "0.1.1"
+version: "0.2.0"
 slug: "tinyciv"
 description: "A tiny autonomous civilization living inside Home Assistant."
 arch:
@@ -8,7 +8,13 @@ arch:
 startup: application
 boot: auto
 init: false
+stage: experimental
 ports:
   8787/tcp: 8787
-webui: "http://[HOST]:[PORT:8787]"
+ports_description:
+  8787/tcp: "TinyCiv direct web access"
+ingress: true
+ingress_port: 8099
+panel_icon: "mdi:castle"
+panel_title: "TinyCiv"
 homeassistant_api: true

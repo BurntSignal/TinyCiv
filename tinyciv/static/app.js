@@ -23,18 +23,14 @@ function renderState(state) {
 
   const chronicle = $("chronicle");
   chronicle.innerHTML = "";
-
   for (const event of state.chronicle) {
     const row = document.createElement("div");
     row.className = `entry ${event.major ? "major" : ""}`;
-
     const year = document.createElement("div");
     year.className = "entry-year";
     year.textContent = `YR ${event.year}`;
-
     const text = document.createElement("p");
     text.textContent = event.text;
-
     row.append(year, text);
     chronicle.appendChild(row);
   }
@@ -53,6 +49,13 @@ function renderVisit(report) {
     return;
   }
 
+  if (report.omitted_count > 0) {
+    const omitted = document.createElement("div");
+    omitted.className = "visit-event muted-event";
+    omitted.textContent = `${report.omitted_count} earlier chronicle ${report.omitted_count === 1 ? "entry was" : "entries were"} recorded while you were away.`;
+    box.appendChild(omitted);
+  }
+
   for (const event of report.events) {
     const item = document.createElement("div");
     item.className = "visit-event";
@@ -62,19 +65,14 @@ function renderVisit(report) {
 }
 
 async function getJSON(url, options = {}) {
-  const response = await fetch(url, {
-    cache: "no-store",
-    ...options,
-  });
-  if (!response.ok) {
-    throw new Error(`${response.status} ${response.statusText}`);
-  }
+  const response = await fetch(url, { cache: "no-store", ...options });
+  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
   return response.json();
 }
 
 async function initialLoad() {
   try {
-    const payload = await getJSON("/api/visit");
+    const payload = await getJSON("api/visit");
     renderVisit(payload.report);
     renderState(payload.state);
   } catch (error) {
@@ -85,30 +83,21 @@ async function initialLoad() {
 
 async function refreshState() {
   try {
-    const state = await getJSON("/api/state");
-    renderState(state);
+    renderState(await getJSON("api/state"));
   } catch (error) {
     console.error(error);
   }
 }
 
 $("nuke-button").addEventListener("click", async () => {
-  const first = confirm(
-    "This permanently erases the current TinyCiv world and founds a new civilization. Continue?"
-  );
-  if (!first) return;
-
-  const second = confirm(
-    "Last chance. There is no undo. Nuke this civilization?"
-  );
-  if (!second) return;
+  if (!confirm("This permanently erases the current TinyCiv world and founds a new civilization. Continue?")) return;
+  if (!confirm("Last chance. There is no undo. Nuke this civilization?")) return;
 
   const button = $("nuke-button");
   button.disabled = true;
   button.textContent = "Erasing world...";
-
   try {
-    await getJSON("/api/nuke", { method: "POST" });
+    await getJSON("api/nuke", { method: "POST" });
     window.location.reload();
   } catch (error) {
     alert(`TinyCiv could not reset: ${error.message}`);
@@ -118,7 +107,7 @@ $("nuke-button").addEventListener("click", async () => {
 });
 
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("/sw.js").catch(console.error);
+  navigator.serviceWorker.register("sw.js").catch(console.error);
 }
 
 initialLoad();
