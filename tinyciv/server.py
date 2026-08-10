@@ -9,7 +9,7 @@ import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from engine import TinyCivEngine
 
@@ -20,7 +20,7 @@ INGRESS_ALLOWED_IP = os.getenv("TINYCIV_INGRESS_ALLOWED_IP", "172.30.32.2")
 STATIC_DIR = Path(os.getenv("TINYCIV_STATIC_DIR", "/opt/tinyciv/static"))
 SUPERVISOR_TOKEN = os.getenv("SUPERVISOR_TOKEN", "")
 
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.3.1"
 
 engine = TinyCivEngine()
 
@@ -73,7 +73,7 @@ def simulation_worker() -> None:
 
 
 class TinyCivHandler(BaseHTTPRequestHandler):
-    server_version = "TinyCiv/0.3"
+    server_version = "TinyCiv/0.3.1"
 
     def log_message(self, fmt: str, *args) -> None:
         print(f"TinyCiv HTTP: {self.address_string()} - {fmt % args}", flush=True)
@@ -124,12 +124,21 @@ class TinyCivHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self) -> None:
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
+        query = parse_qs(parsed.query)
         if path == "/api/health":
             self._send_json({"ok": True, "version": APP_VERSION})
             return
         if path == "/api/state":
-            self._send_json(engine.public_state())
+            try:
+                page = int(query.get("chronicle_page", ["1"])[0])
+                page_size = int(query.get("page_size", ["12"])[0])
+            except ValueError:
+                page = 1
+                page_size = 12
+            order = query.get("chronicle_order", ["desc"])[0]
+            self._send_json(engine.public_state(page, order, page_size))
             return
         if path == "/api/visit":
             self._send_json(engine.visit())

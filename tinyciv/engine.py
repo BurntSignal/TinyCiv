@@ -14,8 +14,7 @@ from typing import Any, Callable
 YEAR_SECONDS = int(os.getenv("TINYCIV_YEAR_SECONDS", "3600"))
 DATA_DIR = Path(os.getenv("TINYCIV_DATA_DIR", "/data"))
 STATE_PATH = DATA_DIR / "tinyciv_state.json"
-WORLD_SCHEMA = 2
-MAX_CHRONICLE = 800
+WORLD_SCHEMA = 3
 
 SETTLEMENT_NAMES = [
     "Mossvale", "Brasswick", "Fernhollow", "Emberford", "Tinkerfen",
@@ -142,6 +141,7 @@ class TinyCivEngine:
             "last_simulated_at": iso(now),
             "last_visit_at": None,
             "last_visit_year": 0,
+            "last_visit_snapshot": None,
             "year": 1,
             "population": population,
             "population_peak": population,
@@ -224,6 +224,7 @@ class TinyCivEngine:
             "chronicle": [],
             "last_visit_year": 0,
             "last_visit_at": None,
+            "last_visit_snapshot": None,
             "population_peak": int(state.get("population", 1)),
             "population_milestones": [],
             "institutions": [],
@@ -280,7 +281,6 @@ class TinyCivEngine:
             "notify": notify,
         }
         state["chronicle"].append(event)
-        state["chronicle"] = state["chronicle"][-MAX_CHRONICLE:]
         return event
 
     def _update_pressures(self, state: dict[str, Any]) -> None:
@@ -722,10 +722,37 @@ class TinyCivEngine:
             self._save()
             return generated
 
-    def public_state(self) -> dict[str, Any]:
+    def _metric_snapshot(self, state: dict[str, Any] | None = None) -> dict[str, int]:
+        s = state or self.state
+        return {
+            "population": int(s["population"]),
+            "food": round(s["food"]),
+            "health": round(s["health"]),
+            "morale": round(s["morale"]),
+            "knowledge": round(s["knowledge"]),
+            "stability": round(s["stability"]),
+        }
+
+    def public_state(
+        self,
+        chronicle_page: int = 1,
+        chronicle_order: str = "desc",
+        page_size: int = 12,
+    ) -> dict[str, Any]:
         with self._lock:
             self.advance_to_now()
             s = self.state
+
+            order = "asc" if chronicle_order == "asc" else "desc"
+            page_size = max(1, min(int(page_size), 50))
+            total_entries = len(s["chronicle"])
+            total_pages = max(1, math.ceil(total_entries / page_size))
+            page = max(1, min(int(chronicle_page), total_pages))
+
+            entries = s["chronicle"] if order == "asc" else list(reversed(s["chronicle"]))
+            start = (page - 1) * page_size
+            chronicle_page_entries = entries[start:start + page_size]
+
             return {
                 "world_id": s["world_id"],
                 "name": s["name"],
@@ -741,7 +768,14 @@ class TinyCivEngine:
                     "knowledge": round(s["knowledge"]),
                     "stability": round(s["stability"]),
                 },
-                "chronicle": list(reversed(s["chronicle"][-14:])),
+                "chronicle": chronicle_page_entries,
+                "chronicle_pagination": {
+                    "page": page,
+                    "page_size": page_size,
+                    "total_entries": total_entries,
+                    "total_pages": total_pages,
+                    "order": order,
+                },
             }
 
     def visit(self) -> dict[str, Any]:
@@ -750,6 +784,8 @@ class TinyCivEngine:
             current_year = self.state["year"]
             last_year = self.state.get("last_visit_year", 0)
             unseen = [e for e in self.state["chronicle"] if e["year"] > last_year]
+            previous_snapshot = self.state.get("last_visit_snapshot")
+            current_snapshot = self._metric_snapshot()
 
             if last_year == 0:
                 report = {
@@ -757,6 +793,7 @@ class TinyCivEngine:
                     "headline": f"You arrive in Year {current_year}.",
                     "events": unseen[-8:],
                     "omitted_count": max(0, len(unseen) - 8),
+                    "metric_baseline": previous_snapshot,
                 }
             else:
                 years_away = max(0, current_year - last_year)
@@ -771,10 +808,12 @@ class TinyCivEngine:
                     "headline": headline,
                     "events": unseen[-8:],
                     "omitted_count": max(0, len(unseen) - 8),
+                    "metric_baseline": previous_snapshot,
                 }
 
             self.state["last_visit_year"] = current_year
             self.state["last_visit_at"] = iso(utc_now())
+            self.state["last_visit_snapshot"] = current_snapshot
             self._save()
             return {"report": report, "state": self.public_state()}
 

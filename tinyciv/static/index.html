@@ -44,12 +44,12 @@
     <section>
       <p class="section-title">CIVILIZATION AT A GLANCE</p>
       <div class="stats">
-        <article class="stat paper"><span>Population</span><strong id="population">—</strong></article>
-        <article class="stat paper"><span>Food</span><strong id="food">—</strong></article>
-        <article class="stat paper"><span>Health</span><strong id="health">—</strong></article>
-        <article class="stat paper"><span>Morale</span><strong id="morale">—</strong></article>
-        <article class="stat paper"><span>Knowledge</span><strong id="knowledge">—</strong></article>
-        <article class="stat paper"><span>Stability</span><strong id="stability">—</strong></article>
+        <article class="stat paper"><span>Population</span><div class="stat-value"><strong id="population">—</strong><small class="stat-delta" id="population-delta" hidden></small></div></article>
+        <article class="stat paper"><span>Food</span><div class="stat-value"><strong id="food">—</strong><small class="stat-delta" id="food-delta" hidden></small></div></article>
+        <article class="stat paper"><span>Health</span><div class="stat-value"><strong id="health">—</strong><small class="stat-delta" id="health-delta" hidden></small></div></article>
+        <article class="stat paper"><span>Morale</span><div class="stat-value"><strong id="morale">—</strong><small class="stat-delta" id="morale-delta" hidden></small></div></article>
+        <article class="stat paper"><span>Knowledge</span><div class="stat-value"><strong id="knowledge">—</strong><small class="stat-delta" id="knowledge-delta" hidden></small></div></article>
+        <article class="stat paper"><span>Stability</span><div class="stat-value"><strong id="stability">—</strong><small class="stat-delta" id="stability-delta" hidden></small></div></article>
       </div>
     </section>
 
@@ -57,11 +57,16 @@
       <div class="chronicle-heading">
         <div>
           <p class="label">THE CHRONICLE</p>
-          <h3>Recent History</h3>
+          <h3>Civilization History</h3>
         </div>
         <span class="live-dot" id="connection-status">● LIVE</span>
       </div>
+      <div class="chronicle-toolbar" aria-label="Chronicle sort order">
+        <button id="sort-desc" class="sort-button active" type="button">Newest first</button>
+        <button id="sort-asc" class="sort-button" type="button">Oldest first</button>
+      </div>
       <div id="chronicle" class="chronicle"></div>
+      <nav id="chronicle-pages" class="chronicle-pages" aria-label="Chronicle pages"></nav>
     </section>
 
     <details class="danger-zone">

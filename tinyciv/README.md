@@ -2,9 +2,9 @@
 
 A tiny autonomous civilization living inside Home Assistant.
 
-## Release 0.3.0
+## Release 0.3.1
 
-This release focuses on the Home Screen web-app experience while preserving the existing TinyCiv world and Home Assistant app workflow.
+This release makes long-term observation easier: at-a-glance stats now show change since your previous visit, and The Chronicle keeps the civilization's complete recorded history with paging and sort controls.
 
 ## Install / update
 

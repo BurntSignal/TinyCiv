@@ -1,7 +1,11 @@
 const $ = (id) => document.getElementById(id);
 
 const VISIT_REFRESH_AFTER_MS = 5 * 60 * 1000;
+const CHRONICLE_PAGE_SIZE = 12;
 let hiddenAt = null;
+let visitBaseline = null;
+let chroniclePage = 1;
+let chronicleOrder = "desc";
 
 function number(value) {
   return new Intl.NumberFormat().format(value);
@@ -18,6 +22,123 @@ function setConnectionStatus(online) {
   el.classList.toggle("offline", !online);
 }
 
+function renderDelta(id, current, baseline) {
+  const el = $(`${id}-delta`);
+  if (!el) return;
+
+  if (baseline === null || baseline === undefined) {
+    el.hidden = true;
+    el.textContent = "";
+    return;
+  }
+
+  const delta = Math.round(current) - Math.round(baseline);
+  el.hidden = false;
+  el.classList.remove("up", "down", "same");
+
+  if (delta > 0) {
+    el.textContent = `+${number(delta)}`;
+    el.classList.add("up");
+  } else if (delta < 0) {
+    el.textContent = `−${number(Math.abs(delta))}`;
+    el.classList.add("down");
+  } else {
+    el.textContent = "±0";
+    el.classList.add("same");
+  }
+
+  el.title = "Change since your previous visit";
+}
+
+function renderChronicle(events) {
+  const chronicle = $("chronicle");
+  chronicle.innerHTML = "";
+
+  if (!events.length) {
+    const empty = document.createElement("div");
+    empty.className = "chronicle-empty";
+    empty.textContent = "The chronicle is waiting for its first entry.";
+    chronicle.appendChild(empty);
+    return;
+  }
+
+  for (const event of events) {
+    const row = document.createElement("div");
+    row.className = `entry ${event.major ? "major" : ""}`;
+    const year = document.createElement("div");
+    year.className = "entry-year";
+    year.textContent = `YR ${event.year}`;
+    const text = document.createElement("p");
+    text.textContent = event.text;
+    row.append(year, text);
+    chronicle.appendChild(row);
+  }
+}
+
+function pageButton(label, page, { active = false, disabled = false, ariaLabel = "" } = {}) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `page-button${active ? " active" : ""}`;
+  button.textContent = label;
+  button.disabled = disabled;
+  if (ariaLabel) button.setAttribute("aria-label", ariaLabel);
+  if (!disabled && !active) {
+    button.addEventListener("click", () => loadChroniclePage(page));
+  }
+  return button;
+}
+
+function renderPagination(meta) {
+  const nav = $("chronicle-pages");
+  nav.innerHTML = "";
+
+  const totalPages = Math.max(1, meta?.total_pages || 1);
+  chroniclePage = Math.max(1, Math.min(meta?.page || chroniclePage, totalPages));
+  chronicleOrder = meta?.order === "asc" ? "asc" : "desc";
+
+  $("sort-desc").classList.toggle("active", chronicleOrder === "desc");
+  $("sort-asc").classList.toggle("active", chronicleOrder === "asc");
+
+  if (totalPages <= 1) return;
+
+  nav.appendChild(pageButton("«", 1, {
+    disabled: chroniclePage === 1,
+    ariaLabel: "First page",
+  }));
+  nav.appendChild(pageButton("‹", chroniclePage - 1, {
+    disabled: chroniclePage === 1,
+    ariaLabel: "Previous page",
+  }));
+
+  const candidates = new Set([1, totalPages, chroniclePage]);
+  for (let offset = -2; offset <= 2; offset += 1) {
+    const page = chroniclePage + offset;
+    if (page >= 1 && page <= totalPages) candidates.add(page);
+  }
+  const pages = [...candidates].sort((a, b) => a - b);
+
+  let previous = 0;
+  for (const page of pages) {
+    if (previous && page - previous > 1) {
+      const gap = document.createElement("span");
+      gap.className = "page-gap";
+      gap.textContent = "…";
+      nav.appendChild(gap);
+    }
+    nav.appendChild(pageButton(String(page), page, { active: page === chroniclePage }));
+    previous = page;
+  }
+
+  nav.appendChild(pageButton("›", chroniclePage + 1, {
+    disabled: chroniclePage === totalPages,
+    ariaLabel: "Next page",
+  }));
+  nav.appendChild(pageButton("»", totalPages, {
+    disabled: chroniclePage === totalPages,
+    ariaLabel: "Last page",
+  }));
+}
+
 function renderState(state) {
   $("civ-name").textContent = state.name;
   $("year").textContent = number(state.year);
@@ -31,19 +152,15 @@ function renderState(state) {
   $("civ-summary").textContent =
     `${state.era}. Population ${number(state.population)}. The world continues without you.`;
 
-  const chronicle = $("chronicle");
-  chronicle.innerHTML = "";
-  for (const event of state.chronicle) {
-    const row = document.createElement("div");
-    row.className = `entry ${event.major ? "major" : ""}`;
-    const year = document.createElement("div");
-    year.className = "entry-year";
-    year.textContent = `YR ${event.year}`;
-    const text = document.createElement("p");
-    text.textContent = event.text;
-    row.append(year, text);
-    chronicle.appendChild(row);
-  }
+  renderDelta("population", state.population, visitBaseline?.population);
+  renderDelta("food", state.metrics.food, visitBaseline?.food);
+  renderDelta("health", state.metrics.health, visitBaseline?.health);
+  renderDelta("morale", state.metrics.morale, visitBaseline?.morale);
+  renderDelta("knowledge", state.metrics.knowledge, visitBaseline?.knowledge);
+  renderDelta("stability", state.metrics.stability, visitBaseline?.stability);
+
+  renderChronicle(state.chronicle || []);
+  renderPagination(state.chronicle_pagination);
 }
 
 function renderVisit(report) {
@@ -80,9 +197,21 @@ async function getJSON(url, options = {}) {
   return response.json();
 }
 
+function stateURL(page = chroniclePage, order = chronicleOrder) {
+  const params = new URLSearchParams({
+    chronicle_page: String(page),
+    chronicle_order: order,
+    page_size: String(CHRONICLE_PAGE_SIZE),
+  });
+  return `api/state?${params.toString()}`;
+}
+
 async function initialLoad() {
   try {
+    chroniclePage = 1;
+    chronicleOrder = "desc";
     const payload = await getJSON("api/visit");
+    visitBaseline = payload.report.metric_baseline || null;
     renderVisit(payload.report);
     renderState(payload.state);
     setConnectionStatus(true);
@@ -95,13 +224,27 @@ async function initialLoad() {
 
 async function refreshState() {
   try {
-    renderState(await getJSON("api/state"));
+    renderState(await getJSON(stateURL()));
     setConnectionStatus(true);
   } catch (error) {
     setConnectionStatus(false);
     console.error(error);
   }
 }
+
+async function loadChroniclePage(page) {
+  chroniclePage = page;
+  await refreshState();
+}
+
+async function setChronicleOrder(order) {
+  chronicleOrder = order === "asc" ? "asc" : "desc";
+  chroniclePage = 1;
+  await refreshState();
+}
+
+$("sort-desc").addEventListener("click", () => setChronicleOrder("desc"));
+$("sort-asc").addEventListener("click", () => setChronicleOrder("asc"));
 
 $("nuke-button").addEventListener("click", async () => {
   if (!confirm("This permanently erases the current TinyCiv world and founds a new civilization. Continue?")) return;
