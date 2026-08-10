@@ -1,0 +1,14 @@
+name: "TinyCiv"
+version: "0.1.0"
+slug: "tinyciv"
+description: "A tiny autonomous civilization living inside Home Assistant."
+arch:
+  - aarch64
+  - amd64
+startup: application
+boot: auto
+init: false
+ports:
+  8787/tcp: 8787
+webui: "http://[HOST]:[PORT:8787]"
+homeassistant_api: true
