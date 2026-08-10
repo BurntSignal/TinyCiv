@@ -20,6 +20,8 @@ INGRESS_ALLOWED_IP = os.getenv("TINYCIV_INGRESS_ALLOWED_IP", "172.30.32.2")
 STATIC_DIR = Path(os.getenv("TINYCIV_STATIC_DIR", "/opt/tinyciv/static"))
 SUPERVISOR_TOKEN = os.getenv("SUPERVISOR_TOKEN", "")
 
+APP_VERSION = "0.3.0"
+
 engine = TinyCivEngine()
 
 
@@ -71,7 +73,7 @@ def simulation_worker() -> None:
 
 
 class TinyCivHandler(BaseHTTPRequestHandler):
-    server_version = "TinyCiv/0.2"
+    server_version = "TinyCiv/0.3"
 
     def log_message(self, fmt: str, *args) -> None:
         print(f"TinyCiv HTTP: {self.address_string()} - {fmt % args}", flush=True)
@@ -92,7 +94,12 @@ class TinyCivHandler(BaseHTTPRequestHandler):
             base = ingress_path if ingress_path.endswith("/") else ingress_path + "/"
         else:
             base = "/"
-        body = template.replace("__TINYCIV_BASE__", html.escape(base, quote=True)).encode("utf-8")
+        body = (
+            template
+            .replace("__TINYCIV_BASE__", html.escape(base, quote=True))
+            .replace("__TINYCIV_VERSION__", html.escape(APP_VERSION, quote=True))
+            .encode("utf-8")
+        )
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -119,7 +126,7 @@ class TinyCivHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path == "/api/health":
-            self._send_json({"ok": True, "version": "0.2.0"})
+            self._send_json({"ok": True, "version": APP_VERSION})
             return
         if path == "/api/state":
             self._send_json(engine.public_state())
@@ -171,7 +178,7 @@ if __name__ == "__main__":
 
     server = ThreadingHTTPServer((HOST, DIRECT_PORT), TinyCivHandler)
     print(
-        f"TinyCiv 0.2.0 is alive on port {DIRECT_PORT}. One real hour = one civilization year.",
+        f"TinyCiv {APP_VERSION} is alive on port {DIRECT_PORT}. One real hour = one civilization year.",
         flush=True,
     )
     try:

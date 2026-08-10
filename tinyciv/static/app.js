@@ -1,11 +1,21 @@
 const $ = (id) => document.getElementById(id);
 
+const VISIT_REFRESH_AFTER_MS = 5 * 60 * 1000;
+let hiddenAt = null;
+
 function number(value) {
   return new Intl.NumberFormat().format(value);
 }
 
 function metric(value) {
   return `${Math.round(value)}%`;
+}
+
+function setConnectionStatus(online) {
+  const el = $("connection-status");
+  if (!el) return;
+  el.textContent = online ? "● LIVE" : "● ARCHIVE OFFLINE";
+  el.classList.toggle("offline", !online);
 }
 
 function renderState(state) {
@@ -75,8 +85,10 @@ async function initialLoad() {
     const payload = await getJSON("api/visit");
     renderVisit(payload.report);
     renderState(payload.state);
+    setConnectionStatus(true);
   } catch (error) {
-    $("visit-headline").textContent = "The archive could not be reached.";
+    setConnectionStatus(false);
+    $("visit-headline").textContent = "The archive cannot be reached right now.";
     console.error(error);
   }
 }
@@ -84,7 +96,9 @@ async function initialLoad() {
 async function refreshState() {
   try {
     renderState(await getJSON("api/state"));
+    setConnectionStatus(true);
   } catch (error) {
+    setConnectionStatus(false);
     console.error(error);
   }
 }
@@ -106,7 +120,29 @@ $("nuke-button").addEventListener("click", async () => {
   }
 });
 
-if ("serviceWorker" in navigator) {
+window.addEventListener("online", refreshState);
+window.addEventListener("offline", () => setConnectionStatus(false));
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    hiddenAt = Date.now();
+    return;
+  }
+
+  const awayFor = hiddenAt ? Date.now() - hiddenAt : 0;
+  hiddenAt = null;
+  if (awayFor >= VISIT_REFRESH_AFTER_MS) {
+    initialLoad();
+  } else {
+    refreshState();
+  }
+});
+
+if (window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true) {
+  document.documentElement.classList.add("standalone");
+}
+
+if ("serviceWorker" in navigator && window.isSecureContext) {
   navigator.serviceWorker.register("sw.js").catch(console.error);
 }
 

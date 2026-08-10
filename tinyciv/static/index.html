@@ -1,16 +1,19 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-tinyciv-version="__TINYCIV_VERSION__">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#171a18">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="TinyCiv">
+  <meta name="format-detection" content="telephone=no">
   <base href="__TINYCIV_BASE__">
   <title>TinyCiv</title>
   <link rel="manifest" href="manifest.json">
-  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="icon" href="icon-192.png" sizes="192x192">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="stylesheet" href="app.css">
 </head>
 <body>
@@ -56,7 +59,7 @@
           <p class="label">THE CHRONICLE</p>
           <h3>Recent History</h3>
         </div>
-        <span class="live-dot">● LIVE</span>
+        <span class="live-dot" id="connection-status">● LIVE</span>
       </div>
       <div id="chronicle" class="chronicle"></div>
     </section>
@@ -69,7 +72,10 @@
       </div>
     </details>
 
-    <footer>One real hour = one TinyCiv year. The observer watches. TinyCiv decides.</footer>
+    <footer>
+      <div>One real hour = one TinyCiv year. The observer watches. TinyCiv decides.</div>
+      <div class="version">TinyCiv v__TINYCIV_VERSION__</div>
+    </footer>
   </main>
 
   <script src="app.js"></script>

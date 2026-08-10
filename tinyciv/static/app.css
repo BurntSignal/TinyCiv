@@ -228,3 +228,29 @@ footer {
   .stats { grid-template-columns: repeat(2, 1fr); }
   .entry { grid-template-columns: 58px 1fr; }
 }
+
+
+/* Home Screen / PWA polish */
+html {
+  background: var(--bg);
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  overscroll-behavior-y: none;
+}
+
+html.standalone body {
+  min-height: 100dvh;
+}
+
+.live-dot.offline {
+  color: var(--muted);
+}
+
+footer .version {
+  margin-top: 8px;
+  font-size: .64rem;
+  letter-spacing: .04em;
+  opacity: .72;
+}

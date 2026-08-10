@@ -1,11 +1,11 @@
 # TinyCiv
 
-A tiny autonomous civilization that lives on a Home Assistant server.
+A tiny autonomous civilization living inside Home Assistant.
 
-TinyCiv is designed to be observed rather than controlled. One real hour equals one civilization year, history persists across restarts and updates, and the civilization catches up after downtime.
+## Release 0.3.0
+
+This release focuses on the Home Screen web-app experience while preserving the existing TinyCiv world and Home Assistant app workflow.
 
 ## Install / update
 
-Upload this repository tree to GitHub, then use Home Assistant's Apps repository workflow to install or update TinyCiv.
-
-The civilization save lives in the app's persistent `/data` storage and is migrated forward when needed.
+Import this release over the existing repository, commit and push, then use Home Assistant Apps to check for updates and update TinyCiv. Existing `/data` state is preserved.
