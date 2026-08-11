@@ -2,12 +2,12 @@
 
 A tiny autonomous civilization living inside Home Assistant.
 
-## Release 0.3.2
+## Release 0.5.0
 
-TinyCiv can now send spoiler-free Chronicle alerts through Home Assistant. If a civilization year produces any Chronicle entry, one generic notification is sent without revealing what happened.
+TinyCiv now has a wider world that can reveal itself only through the Chronicle. There are no new observer controls or diplomacy UI; if the civilization learns that something exists beyond its familiar world, you learn it when they do.
 
 ## Install / update
 
 Import this release over the existing repository, commit and push, then use Home Assistant Apps to check for updates and update TinyCiv. Existing `/data` state is preserved.
 
-After updating, open TinyCiv and check **Observer Notifications**. If Home Assistant exposes only one notify entity, TinyCiv selects it automatically. If there are several, choose your phone and use **Send test notification**. No Home Assistant automation or YAML is required.
+Existing notification settings remain intact. No Home Assistant automation or YAML changes are required.

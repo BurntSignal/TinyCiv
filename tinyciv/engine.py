@@ -14,7 +14,7 @@ from typing import Any, Callable
 YEAR_SECONDS = int(os.getenv("TINYCIV_YEAR_SECONDS", "3600"))
 DATA_DIR = Path(os.getenv("TINYCIV_DATA_DIR", "/data"))
 STATE_PATH = DATA_DIR / "tinyciv_state.json"
-WORLD_SCHEMA = 4
+WORLD_SCHEMA = 5
 
 SETTLEMENT_NAMES = [
     "Mossvale", "Brasswick", "Fernhollow", "Emberford", "Tinkerfen",
@@ -72,6 +72,14 @@ INSTITUTIONS = [
 ]
 
 POPULATION_MILESTONES = [25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000]
+
+WIDER_WORLD_NAMES = [
+    "Alderreach", "Bellmere", "Cairnwatch", "Duskford", "Eastmere",
+    "Fallowmark", "Greyhaven", "Highfen", "Kestrel Vale", "Larkspur",
+    "Northbarrow", "Orchard Reach", "Redwillow", "Stonecross", "Sunmere",
+    "Thornwall", "Valewick", "Whiteharbor", "Windmere", "Yarrowfield",
+]
+
 
 
 def utc_now() -> datetime:
@@ -174,6 +182,11 @@ class TinyCivEngine:
             },
             "population_milestones": [],
             "chronicle": [],
+            "wider_world": {
+                "contacts": [],
+                "next_check_year": rng.randint(28, 40),
+                "last_event_year": 0,
+            },
             "pending_notification_years": [],
         }
         self._add_event(
@@ -237,6 +250,27 @@ class TinyCivEngine:
         for key, value in defaults.items():
             if key not in state:
                 state[key] = value
+                changed = True
+
+        if "wider_world" not in state or not isinstance(state.get("wider_world"), dict):
+            rng = random.Random(stable_seed(f"{state.get('world_id', 'tinyciv')}:wider-world"))
+            current_year = int(state.get("year", 1))
+            state["wider_world"] = {
+                "contacts": [],
+                "next_check_year": max(28, current_year + rng.randint(5, 14)),
+                "last_event_year": 0,
+            }
+            changed = True
+        else:
+            wider = state["wider_world"]
+            if "contacts" not in wider or not isinstance(wider.get("contacts"), list):
+                wider["contacts"] = []
+                changed = True
+            if "next_check_year" not in wider:
+                wider["next_check_year"] = max(28, int(state.get("year", 1)) + 8)
+                changed = True
+            if "last_event_year" not in wider:
+                wider["last_event_year"] = 0
                 changed = True
 
         if schema != WORLD_SCHEMA:
@@ -555,6 +589,172 @@ class TinyCivEngine:
             "Several uneventful seasons accumulated into something rare: broad, unmistakable prosperity.",
         )
 
+    def _new_wider_world_contact(self, state: dict[str, Any]) -> dict[str, Any]:
+        wider = state["wider_world"]
+        used = {str(contact.get("name", "")) for contact in wider.get("contacts", [])}
+        available = [name for name in WIDER_WORLD_NAMES if name not in used]
+        name = random.choice(available) if available else f"Far Settlement {len(used) + 1}"
+        return {
+            "id": str(uuid.uuid4()),
+            "name": name,
+            "stage": 1,
+            "first_hint_year": state["year"],
+            "last_contact_year": state["year"],
+            "relation": random.uniform(44, 62),
+            "trade_established": False,
+        }
+
+    def _wider_world_first_hint(self, state: dict[str, Any]) -> dict[str, Any]:
+        wider = state["wider_world"]
+        contact = self._new_wider_world_contact(state)
+        wider["contacts"].append(contact)
+        root = self._root_settlement_name(state["name"])
+        texts = [
+            f"Explorers returned to {root} with reports of distant smoke columns and cultivated fields beyond lands previously known to them.",
+            f"Travelers brought persistent stories to {root} of a settled people living far beyond the familiar frontier.",
+            f"A scouting party returned to {root} carrying worked goods unlike anything made locally, obtained from strangers beyond the known lands.",
+        ]
+        return self._add_event(state, "distant_people", random.choice(texts), major=True, notify=True)
+
+    def _wider_world_direct_contact(self, state: dict[str, Any], contact: dict[str, Any]) -> dict[str, Any]:
+        contact["stage"] = 2
+        contact["last_contact_year"] = state["year"]
+        root = self._root_settlement_name(state["name"])
+        name = contact["name"]
+        texts = [
+            f"An expedition returned to {root} after meeting people from a distant land. They called their homeland {name}.",
+            f"For the first time, travelers from {name} reached {root}, confirming years of stories about another settled people.",
+            f"Explorers from {root} made peaceful contact with people of {name} and returned with the first reliable account of their homeland.",
+        ]
+        state["knowledge"] = clamp(state["knowledge"] + random.uniform(0.5, 2.0))
+        state["morale"] = clamp(state["morale"] + random.uniform(-0.5, 2.5))
+        return self._add_event(state, "first_contact", random.choice(texts), major=True, notify=True)
+
+    def _wider_world_exchange(self, state: dict[str, Any], contact: dict[str, Any]) -> dict[str, Any]:
+        contact["stage"] = 3
+        contact["last_contact_year"] = state["year"]
+        contact["trade_established"] = True
+        name = contact["name"]
+        root = self._root_settlement_name(state["name"])
+        texts = [
+            f"A small delegation from {name} arrived in {root} to discuss regular exchange of goods between the two peoples.",
+            f"Merchants from {name} reached {root} with goods for barter, beginning the first sustained exchange beyond {root}'s own settlements.",
+            f"Representatives of {name} spent a season in {root}. By the time they departed, both sides had agreed to keep a regular route open.",
+        ]
+        state["food"] = clamp(state["food"] + random.uniform(1.0, 4.0))
+        state["knowledge"] = clamp(state["knowledge"] + random.uniform(1.0, 3.0))
+        state["morale"] = clamp(state["morale"] + random.uniform(0.5, 2.5))
+        return self._add_event(state, "foreign_exchange", random.choice(texts), major=True, notify=True)
+
+    def _wider_world_ongoing(self, state: dict[str, Any], contact: dict[str, Any]) -> dict[str, Any]:
+        name = contact["name"]
+        contact["last_contact_year"] = state["year"]
+        relation = clamp(float(contact.get("relation", 52)) + random.uniform(-8, 8))
+        contact["relation"] = relation
+
+        roll = random.random()
+        if relation < 32 and roll < 0.58:
+            state["stability"] = clamp(state["stability"] - random.uniform(1.5, 4.5))
+            state["morale"] = clamp(state["morale"] - random.uniform(0.5, 3.0))
+            contact["relation"] = clamp(relation - random.uniform(1, 5))
+            texts = [
+                f"A dispute with travelers from {name} disrupted the familiar route between the two peoples for a time.",
+                f"Trade with {name} slowed after a series of accusations neither side could easily settle.",
+                f"Messengers returned from {name} without agreement on a growing border dispute, leaving relations noticeably colder.",
+            ]
+            return self._add_event(state, "foreign_tension", random.choice(texts), major=relation < 20, notify=relation < 20)
+
+        if roll < 0.28:
+            gain = max(1, random.randint(1, max(2, int(math.sqrt(state["population"]) * 0.35))))
+            state["population"] += gain
+            state["population_peak"] = max(state["population_peak"], state["population"])
+            state["morale"] = clamp(state["morale"] + random.uniform(0.5, 2.5))
+            return self._add_event(
+                state,
+                "foreign_migration",
+                f"Several families from {name} chose to settle permanently among the people of {self._root_settlement_name(state['name'])}.",
+            )
+
+        if roll < 0.62:
+            state["food"] = clamp(state["food"] + random.uniform(1.0, 4.5))
+            state["morale"] = clamp(state["morale"] + random.uniform(0.5, 2.0))
+            contact["relation"] = clamp(relation + random.uniform(1, 4))
+            texts = [
+                f"A busy season of trade with {name} brought unfamiliar goods into local markets and carried local wares outward in return.",
+                f"Caravans traveling between {name} and {self._root_settlement_name(state['name'])} became common enough to stop drawing crowds.",
+                f"A difficult harvest was softened by goods arriving along the established route from {name}.",
+            ]
+            return self._add_event(state, "foreign_trade", random.choice(texts))
+
+        state["knowledge"] = clamp(state["knowledge"] + random.uniform(1.0, 3.5))
+        contact["relation"] = clamp(relation + random.uniform(0, 3))
+        texts = [
+            f"Craftworkers returning from {name} introduced methods that quickly found uses in local workshops.",
+            f"Visitors from {name} exchanged practical knowledge with local builders, healers, and record keepers.",
+            f"A delegation traveled to {name} and returned with observations that challenged several long-held assumptions.",
+        ]
+        return self._add_event(state, "foreign_knowledge", random.choice(texts))
+
+    def _maybe_wider_world_event(self, state: dict[str, Any]) -> dict[str, Any] | None:
+        wider = state.get("wider_world")
+        if not isinstance(wider, dict):
+            return None
+        year = int(state["year"])
+        next_check = int(wider.get("next_check_year", 28))
+        if year < next_check:
+            return None
+
+        # Wider-world developments are intentionally sparse. The simulation keeps
+        # the machinery private; only Chronicle-worthy consequences are public.
+        wider["next_check_year"] = year + random.randint(4, 12)
+        contacts = wider.setdefault("contacts", [])
+        explorer_known = any(str(n.get("role", "")) == "explorer" for n in state.get("notables", []))
+        outward_capacity = state["knowledge"] + math.sqrt(max(1, state["population"])) * 1.8 + len(state.get("settlements", [])) * 2.5
+
+        if not contacts:
+            if year < 28 or (outward_capacity < 20 and not explorer_known):
+                return None
+            chance = clamp(0.28 + max(0.0, outward_capacity - 20) * 0.012, 0.28, 0.72)
+            if random.random() > chance:
+                return None
+            event = self._wider_world_first_hint(state)
+            wider["last_event_year"] = year
+            return event
+
+        # Once first contact is established, later civilizations can independently
+        # enter the Chronicle as TinyCiv's reach and knowledge expand.
+        mature_contacts = [c for c in contacts if int(c.get("stage", 1)) >= 3]
+        oldest_hint = min(int(c.get("first_hint_year", year)) for c in contacts)
+        can_find_another = (
+            len(contacts) < 3
+            and mature_contacts
+            and year - oldest_hint >= 24
+            and (state["knowledge"] >= 28 or state["population"] >= 70)
+        )
+        if can_find_another and random.random() < 0.18:
+            event = self._wider_world_first_hint(state)
+            wider["last_event_year"] = year
+            return event
+
+        contact = random.choice(contacts)
+        stage = int(contact.get("stage", 1))
+        years_since = year - int(contact.get("last_contact_year", contact.get("first_hint_year", year)))
+        if stage == 1:
+            if years_since < 3 or random.random() > 0.72:
+                return None
+            event = self._wider_world_direct_contact(state, contact)
+        elif stage == 2:
+            if years_since < 2 or random.random() > 0.78:
+                return None
+            event = self._wider_world_exchange(state, contact)
+        else:
+            if years_since < 4 or random.random() > 0.68:
+                return None
+            event = self._wider_world_ongoing(state, contact)
+
+        wider["last_event_year"] = year
+        return event
+
     def _maybe_year_event(self, state: dict[str, Any]) -> dict[str, Any] | None:
         crisis = max(state["pressures"].get("scarcity", 0), state["pressures"].get("unrest", 0))
         event_chance = clamp(0.24 + crisis * 0.0022, 0.22, 0.48)
@@ -675,6 +875,10 @@ class TinyCivEngine:
         event = self._maybe_year_event(state)
         if event:
             generated.append(event)
+
+        wider_world_event = self._maybe_wider_world_event(state)
+        if wider_world_event:
+            generated.append(wider_world_event)
 
         governance_event = self._maybe_governance_event(state)
         if governance_event:

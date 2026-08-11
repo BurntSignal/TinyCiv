@@ -1,9 +1,8 @@
-# TinyCiv 0.3.2
+# TinyCiv 0.5.0
 
-- Added spoiler-free Chronicle push notifications through Home Assistant.
-- Once per civilization year, if one or more new Chronicle entries occur, TinyCiv sends one alert: “A new chronicle entry has occurred!”
-- Notification text never reveals the year, event count, or what happened.
-- Added an Observer Notifications card that discovers Home Assistant notify entities, auto-selects a single available target, allows choosing among multiple targets, and provides a test button.
-- Notification delivery is now queued persistently, preventing events from being missed if the PWA advances the simulation before the background worker.
-- If push delivery is unavailable, TinyCiv falls back to a spoiler-free Home Assistant persistent notification.
-- Existing civilizations and Chronicle history persist; no world reset required.
+- The world beyond the civilization can now emerge organically through the Chronicle.
+- Distant peoples may be encountered gradually through exploration, travel, exchange, and the consequences of continued contact.
+- Knowledge about other civilizations appears only when the civilization itself has learned it; there is no diplomacy screen, world map, relationship meter, or observer control.
+- Wider-world developments are intentionally sparse and Chronicle-driven so TinyCiv remains something you witness rather than play.
+- The existing interface, Chronicle browsing, mobile layout, observer notifications, and saved civilization remain unchanged.
+- Existing civilizations migrate automatically; no reset is required.
