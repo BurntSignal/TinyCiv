@@ -1,7 +1,9 @@
-# TinyCiv 0.3.1
+# TinyCiv 0.3.2
 
-- Civilization At A Glance now shows a subtle + / − / ±0 change beside each metric compared with the observer's previous visit.
-- The Chronicle is now permanent for the life of the civilization instead of trimming older entries.
-- Added paged Chronicle navigation with first/previous/numbered/next/last controls.
-- Added Newest first / Oldest first sorting; Newest first is the default.
-- Existing civilizations persist; no world reset required.
+- Added spoiler-free Chronicle push notifications through Home Assistant.
+- Once per civilization year, if one or more new Chronicle entries occur, TinyCiv sends one alert: “A new chronicle entry has occurred!”
+- Notification text never reveals the year, event count, or what happened.
+- Added an Observer Notifications card that discovers Home Assistant notify entities, auto-selects a single available target, allows choosing among multiple targets, and provides a test button.
+- Notification delivery is now queued persistently, preventing events from being missed if the PWA advances the simulation before the background worker.
+- If push delivery is unavailable, TinyCiv falls back to a spoiler-free Home Assistant persistent notification.
+- Existing civilizations and Chronicle history persist; no world reset required.

@@ -197,6 +197,100 @@ async function getJSON(url, options = {}) {
   return response.json();
 }
 
+async function saveNotificationSettings() {
+  const enabled = $("notifications-enabled").checked;
+  const notificationEntity = $("notification-target").value;
+  const status = $("notification-status");
+  status.className = "notification-status muted";
+  status.textContent = "Saving observer notification settings…";
+  try {
+    const payload = await getJSON("api/notifications", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        enabled,
+        notification_entity: notificationEntity,
+      }),
+    });
+    renderNotificationSettings(payload);
+  } catch (error) {
+    status.className = "notification-status warn";
+    status.textContent = `Could not save notification settings: ${error.message}`;
+  }
+}
+
+function renderNotificationSettings(payload) {
+  const enabled = $("notifications-enabled");
+  const select = $("notification-target");
+  const test = $("notification-test");
+  const status = $("notification-status");
+
+  enabled.checked = payload.enabled !== false;
+  select.innerHTML = "";
+
+  const empty = document.createElement("option");
+  empty.value = "";
+  if (!payload.supervisor_available) {
+    empty.textContent = "Home Assistant API unavailable";
+  } else if (!payload.targets?.length) {
+    empty.textContent = "No notification targets found";
+  } else {
+    empty.textContent = "Choose a notification target…";
+  }
+  select.appendChild(empty);
+
+  for (const target of payload.targets || []) {
+    const option = document.createElement("option");
+    option.value = target.entity_id;
+    option.textContent = target.available === false
+      ? `${target.name} — unavailable`
+      : target.name;
+    option.disabled = target.available === false;
+    select.appendChild(option);
+  }
+
+  if (payload.notification_entity) {
+    const savedExists = [...select.options].some((option) => option.value === payload.notification_entity);
+    if (!savedExists) {
+      const missing = document.createElement("option");
+      missing.value = payload.notification_entity;
+      missing.textContent = `${payload.notification_entity} — missing`;
+      select.appendChild(missing);
+    }
+    select.value = payload.notification_entity;
+  }
+
+  select.disabled = !enabled.checked || !payload.supervisor_available || !(payload.targets || []).length;
+  test.disabled = !enabled.checked || !select.value;
+
+  status.className = "notification-status muted";
+  if (!enabled.checked) {
+    status.textContent = "Chronicle notifications are off.";
+  } else if (!payload.supervisor_available) {
+    status.classList.add("warn");
+    status.textContent = "TinyCiv cannot reach the Home Assistant notification API.";
+  } else if (!payload.targets?.length) {
+    status.classList.add("warn");
+    status.textContent = "No Home Assistant notify entities were found. The Companion App may need notifications enabled.";
+  } else if (select.value) {
+    status.classList.add("good");
+    status.textContent = `Armed. Chronicle alerts will be delivered to ${select.options[select.selectedIndex].textContent}.`;
+  } else {
+    status.classList.add("warn");
+    status.textContent = "Choose where TinyCiv should send Chronicle alerts.";
+  }
+}
+
+async function loadNotificationSettings() {
+  const status = $("notification-status");
+  try {
+    renderNotificationSettings(await getJSON("api/notifications"));
+  } catch (error) {
+    status.className = "notification-status warn";
+    status.textContent = `Could not load notification settings: ${error.message}`;
+  }
+}
+
 function stateURL(page = chroniclePage, order = chronicleOrder) {
   const params = new URLSearchParams({
     chronicle_page: String(page),
@@ -246,6 +340,26 @@ async function setChronicleOrder(order) {
 $("sort-desc").addEventListener("click", () => setChronicleOrder("desc"));
 $("sort-asc").addEventListener("click", () => setChronicleOrder("asc"));
 
+$("notifications-enabled").addEventListener("change", saveNotificationSettings);
+$("notification-target").addEventListener("change", saveNotificationSettings);
+$("notification-test").addEventListener("click", async () => {
+  const button = $("notification-test");
+  const status = $("notification-status");
+  button.disabled = true;
+  status.className = "notification-status muted";
+  status.textContent = "Sending a test notification…";
+  try {
+    await getJSON("api/notifications/test", { method: "POST" });
+    status.className = "notification-status good";
+    status.textContent = "Test sent. Check your device.";
+  } catch (error) {
+    status.className = "notification-status warn";
+    status.textContent = "The test could not be delivered. Choose an available notification target and try again.";
+  } finally {
+    button.disabled = !$("notifications-enabled").checked || !$("notification-target").value;
+  }
+});
+
 $("nuke-button").addEventListener("click", async () => {
   if (!confirm("This permanently erases the current TinyCiv world and founds a new civilization. Continue?")) return;
   if (!confirm("Last chance. There is no undo. Nuke this civilization?")) return;
@@ -290,4 +404,5 @@ if ("serviceWorker" in navigator && window.isSecureContext) {
 }
 
 initialLoad();
+loadNotificationSettings();
 setInterval(refreshState, 60_000);

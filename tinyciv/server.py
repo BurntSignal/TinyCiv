@@ -20,7 +20,7 @@ INGRESS_ALLOWED_IP = os.getenv("TINYCIV_INGRESS_ALLOWED_IP", "172.30.32.2")
 STATIC_DIR = Path(os.getenv("TINYCIV_STATIC_DIR", "/opt/tinyciv/static"))
 SUPERVISOR_TOKEN = os.getenv("SUPERVISOR_TOKEN", "")
 
-APP_VERSION = "0.3.1"
+APP_VERSION = "0.3.2"
 
 engine = TinyCivEngine()
 
@@ -29,51 +29,199 @@ def json_bytes(data: object) -> bytes:
     return json.dumps(data).encode("utf-8")
 
 
-def send_ha_notification(event: dict) -> None:
+SETTINGS_PATH = Path(os.getenv("TINYCIV_SETTINGS_PATH", "/data/tinyciv_settings.json"))
+SETTINGS_LOCK = threading.RLock()
+CHRONICLE_NOTIFICATION_MESSAGE = "A new chronicle entry has occurred!"
+
+
+def _ha_request(path: str, payload: dict | None = None, method: str = "GET") -> object:
     if not SUPERVISOR_TOKEN:
-        print("TinyCiv: no SUPERVISOR_TOKEN; skipping Home Assistant notification.", flush=True)
-        return
+        raise RuntimeError("SUPERVISOR_TOKEN is unavailable")
 
-    payload = json.dumps(
-        {
-            "title": f"TinyCiv — Year {event['year']}",
-            "message": event["text"],
-            "notification_id": "tinyciv_chronicle",
-        }
-    ).encode("utf-8")
-
+    body = None if payload is None else json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(
-        "http://supervisor/core/api/services/persistent_notification/create",
-        data=payload,
-        method="POST",
+        f"http://supervisor/core{path}",
+        data=body,
+        method=method,
         headers={
             "Authorization": f"Bearer {SUPERVISOR_TOKEN}",
             "Content-Type": "application/json",
         },
     )
+    with urllib.request.urlopen(request, timeout=8) as response:
+        raw = response.read()
+    if not raw:
+        return None
+    return json.loads(raw.decode("utf-8"))
 
+
+def _load_notification_settings() -> dict:
+    defaults = {"enabled": True, "notification_entity": ""}
+    with SETTINGS_LOCK:
+        if not SETTINGS_PATH.exists():
+            return defaults.copy()
+        try:
+            loaded = json.loads(SETTINGS_PATH.read_text())
+        except Exception as exc:
+            print(f"TinyCiv: notification settings could not be read ({exc}); using defaults.", flush=True)
+            return defaults.copy()
+        return {
+            "enabled": bool(loaded.get("enabled", True)),
+            "notification_entity": str(loaded.get("notification_entity", "") or ""),
+        }
+
+
+def _save_notification_settings(settings: dict) -> None:
+    normalized = {
+        "enabled": bool(settings.get("enabled", True)),
+        "notification_entity": str(settings.get("notification_entity", "") or ""),
+    }
+    with SETTINGS_LOCK:
+        SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        temp = SETTINGS_PATH.with_suffix(".tmp")
+        temp.write_text(json.dumps(normalized, indent=2))
+        temp.replace(SETTINGS_PATH)
+
+
+def discover_notification_targets() -> list[dict]:
+    if not SUPERVISOR_TOKEN:
+        return []
     try:
-        with urllib.request.urlopen(request, timeout=8) as response:
-            response.read()
-        print(f"TinyCiv: Home Assistant recorded a Year {event['year']} notification.", flush=True)
+        states = _ha_request("/api/states")
     except Exception as exc:
-        print(f"TinyCiv: Home Assistant notification failed: {exc}", flush=True)
+        print(f"TinyCiv: could not discover Home Assistant notify entities: {exc}", flush=True)
+        return []
+
+    targets: list[dict] = []
+    if not isinstance(states, list):
+        return targets
+    for item in states:
+        if not isinstance(item, dict):
+            continue
+        entity_id = str(item.get("entity_id", ""))
+        if not entity_id.startswith("notify."):
+            continue
+        attributes = item.get("attributes") if isinstance(item.get("attributes"), dict) else {}
+        friendly_name = str(attributes.get("friendly_name") or entity_id)
+        targets.append(
+            {
+                "entity_id": entity_id,
+                "name": friendly_name,
+                "available": str(item.get("state", "")).lower() != "unavailable",
+            }
+        )
+    targets.sort(key=lambda target: (target["name"].lower(), target["entity_id"]))
+    return targets
+
+
+def notification_settings_payload() -> dict:
+    settings = _load_notification_settings()
+    targets = discover_notification_targets()
+    target_ids = {target["entity_id"] for target in targets}
+
+    # Home Assistant 2026.5+ exposes Companion App devices as notify entities.
+    # If there is only one target, arm it automatically so a single-phone setup
+    # needs no configuration at all.
+    if settings["enabled"] and not settings["notification_entity"] and len(targets) == 1:
+        settings["notification_entity"] = targets[0]["entity_id"]
+        _save_notification_settings(settings)
+    elif settings["notification_entity"] and settings["notification_entity"] not in target_ids:
+        # Keep the saved value visible so the UI can explain that it disappeared.
+        pass
+
+    return {
+        **settings,
+        "targets": targets,
+        "supervisor_available": bool(SUPERVISOR_TOKEN),
+    }
+
+
+def _resolved_notification_target() -> str:
+    payload = notification_settings_payload()
+    if not payload["enabled"]:
+        return ""
+
+    configured = str(payload.get("notification_entity", ""))
+    target_ids = {target["entity_id"] for target in payload.get("targets", []) if target.get("available", True)}
+    if configured and configured in target_ids:
+        return configured
+
+    available_targets = [target for target in payload.get("targets", []) if target.get("available", True)]
+    if len(available_targets) == 1:
+        settings = _load_notification_settings()
+        settings["notification_entity"] = available_targets[0]["entity_id"]
+        _save_notification_settings(settings)
+        return available_targets[0]["entity_id"]
+    return ""
+
+
+def _send_push_notification(year: int, message: str = CHRONICLE_NOTIFICATION_MESSAGE) -> bool:
+    target = _resolved_notification_target()
+    if not target:
+        return False
+    try:
+        _ha_request(
+            "/api/services/notify/send_message",
+            {
+                "entity_id": target,
+                "title": "TinyCiv",
+                "message": message,
+            },
+            method="POST",
+        )
+        print(f"TinyCiv: sent observer notification for Year {year} to {target}.", flush=True)
+        return True
+    except Exception as exc:
+        print(f"TinyCiv: push notification failed for Year {year}: {exc}", flush=True)
+        return False
+
+
+def _send_persistent_fallback(year: int, message: str = CHRONICLE_NOTIFICATION_MESSAGE) -> bool:
+    if not SUPERVISOR_TOKEN:
+        return False
+    try:
+        _ha_request(
+            "/api/services/persistent_notification/create",
+            {
+                "title": "TinyCiv",
+                "message": message,
+                "notification_id": f"tinyciv_chronicle_{year}",
+            },
+            method="POST",
+        )
+        print(f"TinyCiv: stored fallback Home Assistant notification for Year {year}.", flush=True)
+        return True
+    except Exception as exc:
+        print(f"TinyCiv: Home Assistant fallback notification failed for Year {year}: {exc}", flush=True)
+        return False
+
+
+def send_chronicle_notification(year: int) -> bool:
+    settings = _load_notification_settings()
+    if not settings["enabled"]:
+        return True
+    if _send_push_notification(year):
+        return True
+    return _send_persistent_fallback(year)
 
 
 def simulation_worker() -> None:
     while True:
         try:
-            events = engine.advance_to_now()
-            notify_events = [e for e in events if e.get("notify")]
-            if notify_events:
-                send_ha_notification(notify_events[-1])
+            engine.advance_to_now()
+            for year in engine.pending_notification_years():
+                if send_chronicle_notification(year):
+                    engine.acknowledge_notification_year(year)
+                else:
+                    # Keep the year queued and retry later if Home Assistant is temporarily unavailable.
+                    break
         except Exception as exc:
             print(f"TinyCiv simulation worker error: {exc}", flush=True)
         time.sleep(60)
 
 
 class TinyCivHandler(BaseHTTPRequestHandler):
-    server_version = "TinyCiv/0.3.1"
+    server_version = "TinyCiv/0.3.2"
 
     def log_message(self, fmt: str, *args) -> None:
         print(f"TinyCiv HTTP: {self.address_string()} - {fmt % args}", flush=True)
@@ -130,6 +278,9 @@ class TinyCivHandler(BaseHTTPRequestHandler):
         if path == "/api/health":
             self._send_json({"ok": True, "version": APP_VERSION})
             return
+        if path == "/api/notifications":
+            self._send_json(notification_settings_payload())
+            return
         if path == "/api/state":
             try:
                 page = int(query.get("chronicle_page", ["1"])[0])
@@ -150,12 +301,42 @@ class TinyCivHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path
+        length = int(self.headers.get("Content-Length", "0"))
+        raw = self.rfile.read(length) if length else b""
+
         if path == "/api/nuke":
-            length = int(self.headers.get("Content-Length", "0"))
-            if length:
-                self.rfile.read(length)
             self._send_json({"ok": True, "state": engine.nuke()})
             return
+
+        if path == "/api/notifications":
+            try:
+                payload = json.loads(raw.decode("utf-8")) if raw else {}
+            except Exception:
+                self._send_json({"error": "invalid_json"}, status=400)
+                return
+            current = _load_notification_settings()
+            current["enabled"] = bool(payload.get("enabled", current["enabled"]))
+            entity_id = str(payload.get("notification_entity", current["notification_entity"]) or "")
+            valid_ids = {target["entity_id"] for target in discover_notification_targets()}
+            if entity_id and entity_id not in valid_ids:
+                self._send_json({"error": "unknown_notification_entity"}, status=400)
+                return
+            current["notification_entity"] = entity_id
+            _save_notification_settings(current)
+            self._send_json({"ok": True, **notification_settings_payload()})
+            return
+
+        if path == "/api/notifications/test":
+            settings = _load_notification_settings()
+            if not settings["enabled"]:
+                self._send_json({"error": "notifications_disabled"}, status=409)
+                return
+            if _send_push_notification(0, "TinyCiv observer notifications are connected."):
+                self._send_json({"ok": True})
+                return
+            self._send_json({"error": "notification_target_unavailable"}, status=409)
+            return
+
         self._send_json({"error": "not_found"}, status=404)
 
 

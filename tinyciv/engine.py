@@ -14,7 +14,7 @@ from typing import Any, Callable
 YEAR_SECONDS = int(os.getenv("TINYCIV_YEAR_SECONDS", "3600"))
 DATA_DIR = Path(os.getenv("TINYCIV_DATA_DIR", "/data"))
 STATE_PATH = DATA_DIR / "tinyciv_state.json"
-WORLD_SCHEMA = 3
+WORLD_SCHEMA = 4
 
 SETTLEMENT_NAMES = [
     "Mossvale", "Brasswick", "Fernhollow", "Emberford", "Tinkerfen",
@@ -174,6 +174,7 @@ class TinyCivEngine:
             },
             "population_milestones": [],
             "chronicle": [],
+            "pending_notification_years": [],
         }
         self._add_event(
             state,
@@ -231,6 +232,7 @@ class TinyCivEngine:
             "discoveries": [],
             "notables": [],
             "pressures": {"scarcity": 0.0, "unrest": 0.0, "recovery": 0.0},
+            "pending_notification_years": [],
         }
         for key, value in defaults.items():
             if key not in state:
@@ -714,13 +716,32 @@ class TinyCivEngine:
 
             years_due = min(years_due, 10_000)
             generated: list[dict[str, Any]] = []
+            pending = self.state.setdefault("pending_notification_years", [])
             for _ in range(years_due):
-                generated.extend(self._year_tick(self.state))
+                year_events = self._year_tick(self.state)
+                generated.extend(year_events)
+                if year_events:
+                    year = int(self.state["year"])
+                    if year not in pending:
+                        pending.append(year)
 
             simulated_until = last.timestamp() + years_due * YEAR_SECONDS
             self.state["last_simulated_at"] = iso(datetime.fromtimestamp(simulated_until, tz=timezone.utc))
             self._save()
             return generated
+
+
+    def pending_notification_years(self) -> list[int]:
+        with self._lock:
+            return [int(year) for year in self.state.get("pending_notification_years", [])]
+
+    def acknowledge_notification_year(self, year: int) -> None:
+        with self._lock:
+            pending = self.state.setdefault("pending_notification_years", [])
+            updated = [int(item) for item in pending if int(item) != int(year)]
+            if updated != pending:
+                self.state["pending_notification_years"] = updated
+                self._save()
 
     def _metric_snapshot(self, state: dict[str, Any] | None = None) -> dict[str, int]:
         s = state or self.state

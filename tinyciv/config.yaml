@@ -1,5 +1,5 @@
 name: "TinyCiv"
-version: "0.3.1"
+version: "0.3.2"
 slug: "tinyciv"
 description: "A tiny autonomous civilization living inside Home Assistant."
 arch:
