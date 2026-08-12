@@ -1,4 +1,4 @@
-const CACHE_NAME = "tinyciv-v0.5.1";
+const CACHE_NAME = "tinyciv-v0.5.2";
 const STATIC_ASSETS = [
   "./",
   "app.css",

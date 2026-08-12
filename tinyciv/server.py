@@ -20,7 +20,7 @@ INGRESS_ALLOWED_IP = os.getenv("TINYCIV_INGRESS_ALLOWED_IP", "172.30.32.2")
 STATIC_DIR = Path(os.getenv("TINYCIV_STATIC_DIR", "/opt/tinyciv/static"))
 SUPERVISOR_TOKEN = os.getenv("SUPERVISOR_TOKEN", "")
 
-APP_VERSION = "0.5.1"
+APP_VERSION = "0.5.2"
 
 engine = TinyCivEngine()
 
@@ -221,7 +221,7 @@ def simulation_worker() -> None:
 
 
 class TinyCivHandler(BaseHTTPRequestHandler):
-    server_version = "TinyCiv/0.5.1"
+    server_version = "TinyCiv/0.5.2"
 
     def log_message(self, fmt: str, *args) -> None:
         print(f"TinyCiv HTTP: {self.address_string()} - {fmt % args}", flush=True)

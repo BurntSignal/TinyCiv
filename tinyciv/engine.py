@@ -14,7 +14,7 @@ from typing import Any, Callable
 YEAR_SECONDS = int(os.getenv("TINYCIV_YEAR_SECONDS", "3600"))
 DATA_DIR = Path(os.getenv("TINYCIV_DATA_DIR", "/data"))
 STATE_PATH = DATA_DIR / "tinyciv_state.json"
-WORLD_SCHEMA = 5
+WORLD_SCHEMA = 6
 
 SETTLEMENT_NAMES = [
     "Mossvale", "Brasswick", "Fernhollow", "Emberford", "Tinkerfen",
@@ -69,6 +69,47 @@ INSTITUTIONS = [
     ("a civic court", 110, 50),
     ("an academy", 180, 58),
     ("a public works office", 260, 64),
+]
+
+PUBLIC_WORKS = [
+    ("lined communal wells", 18, 10),
+    ("raised field drains", 24, 13),
+    ("a timber bridge over the nearest difficult crossing", 30, 16),
+    ("stone-lined irrigation channels", 42, 20),
+    ("a maintained road between the largest settlements", 70, 25),
+    ("a permanent public square", 95, 28),
+    ("a covered market hall", 150, 34),
+    ("a network of public cisterns", 240, 40),
+]
+
+GEOGRAPHIC_DISCOVERIES = [
+    ("north_pass", 14, 8, "Explorers returned with a reliable route through high ground once treated as an impassable boundary."),
+    ("great_river", 20, 10, "An expedition followed an unfamiliar watercourse for days and returned convinced it was part of a river far larger than any previously mapped."),
+    ("salt_marsh", 24, 12, "Travelers found broad salt marshes beyond the familiar country and returned with enough salt to make the discovery impossible to ignore."),
+    ("ore_hills", 30, 16, "Prospectors identified dark, metal-bearing stone in distant hills and marked the route for later journeys."),
+    ("far_lake", 38, 18, "Explorers reached a vast inland lake beyond the known trails and brought home the first dependable account of its shores."),
+    ("old_foundations", 45, 22, "A scouting party found weathered stone foundations far from any living settlement known to them. No one could say who had built them."),
+    ("coast", 60, 27, "After a long expedition, travelers returned with shells, salt-stiff clothing, and descriptions of water stretching beyond the horizon."),
+]
+
+ECONOMIC_DEVELOPMENTS = [
+    ("market_day", 18, 8, "A regular market day took hold, drawing farmers and craftworkers into the same place often enough to reshape local exchange."),
+    ("specialist_crafts", 24, 12, "Some households began living primarily by a single craft rather than dividing their time between every necessary task."),
+    ("apprenticeships", 35, 16, "Formal apprenticeships became common enough that skilled trades started passing from masters to students in recognizable lineages."),
+    ("long_distance_carriers", 55, 20, "A small class of carriers began making regular journeys between settlements, moving goods for people they scarcely knew."),
+    ("seasonal_fair", 80, 24, "A seasonal fair grew into the largest recurring exchange of goods, labor, news, and gossip in the region."),
+    ("workshop_district", 125, 31, "Workshops clustered into a noisy district where tools, labor, and specialized knowledge moved quickly from one craft to another."),
+]
+
+CULTURAL_DEVELOPMENTS = [
+    ("lantern_night", 12, 0, "An evening of shared lamps and stories outlasted the occasion that created it and became an annual tradition."),
+    ("ancestor_hearths", 16, 0, "Families began keeping small memorial hearths for the dead, turning private mourning into a recognizable custom."),
+    ("public_storykeepers", 22, 10, "A handful of gifted storytellers became trusted keepers of old accounts, preserving events that had previously survived only by chance."),
+    ("founding_day", 28, 0, "The founding of the settlement became the center of a yearly public observance, complete with traditions no founder would have recognized."),
+    ("watcher_belief", 32, 12, "A belief spread that an unseen watcher beyond the world sometimes turned its attention toward {root}. Small offerings began appearing on rooftops and thresholds."),
+    ("funerary_cairns", 38, 12, "Stone cairns marking the dead became common enough to change the landscape around the oldest roads."),
+    ("public_music", 45, 15, "Distinctive local songs and instruments became associated with public gatherings, work crews, and celebrations."),
+    ("philosophers", 70, 26, "Public arguments about duty, nature, and the good life became a recognized pursuit rather than merely an excuse to linger after meals."),
 ]
 
 POPULATION_MILESTONES = [25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000]
@@ -175,6 +216,12 @@ class TinyCivEngine:
             "institutions": [],
             "discoveries": [],
             "notables": [],
+            "civilization_memory": {
+                "traditions": [],
+                "public_works": [],
+                "geography": [],
+                "economic_changes": [],
+            },
             "pressures": {
                 "scarcity": 0.0,
                 "unrest": 0.0,
@@ -244,12 +291,28 @@ class TinyCivEngine:
             "institutions": [],
             "discoveries": [],
             "notables": [],
+            "civilization_memory": {
+                "traditions": [],
+                "public_works": [],
+                "geography": [],
+                "economic_changes": [],
+            },
             "pressures": {"scarcity": 0.0, "unrest": 0.0, "recovery": 0.0},
             "pending_notification_years": [],
         }
         for key, value in defaults.items():
             if key not in state:
                 state[key] = value
+                changed = True
+
+        memory = state.get("civilization_memory")
+        if not isinstance(memory, dict):
+            memory = {}
+            state["civilization_memory"] = memory
+            changed = True
+        for key in ("traditions", "public_works", "geography", "economic_changes"):
+            if key not in memory or not isinstance(memory.get(key), list):
+                memory[key] = []
                 changed = True
 
         if "wider_world" not in state or not isinstance(state.get("wider_world"), dict):
@@ -405,12 +468,22 @@ class TinyCivEngine:
             state["food"] = clamp(state["food"] - random.uniform(8, 19))
             state["morale"] = clamp(state["morale"] - random.uniform(2, 6))
             severe = state["food"] < 27
+            if severe:
+                loss = max(1, int(round(state["population"] * random.uniform(0.01, 0.045))))
+                state["population"] = max(2, state["population"] - loss)
+                state["health"] = clamp(state["health"] - random.uniform(3, 8))
+                lives = "life was" if loss == 1 else "lives were"
+                return self._add_event(
+                    state,
+                    "famine",
+                    f"A failed harvest became a famine. Stores ran dangerously low, rationing spread, and {loss} {lives} lost before food supplies recovered.",
+                    major=True,
+                    notify=True,
+                )
             return self._add_event(
                 state,
                 "harvest",
                 "A poor harvest emptied storehouses faster than expected, and rationing followed.",
-                major=severe,
-                notify=severe,
             )
         state["food"] = clamp(state["food"] + random.uniform(9, 18))
         state["morale"] = clamp(state["morale"] + random.uniform(2, 6))
@@ -426,10 +499,11 @@ class TinyCivEngine:
         state["population"] = max(2, state["population"] - loss)
         state["health"] = clamp(state["health"] - random.uniform(4, 10))
         severe = loss >= max(4, int(state["population"] * 0.07))
+        lives = "life was" if loss == 1 else "lives were"
         return self._add_event(
             state,
             "illness",
-            f"An illness moved through the settlements. {loss} lives were lost before it passed.",
+            f"An illness moved through the settlements. {loss} {lives} lost before it passed.",
             major=severe,
             notify=severe,
         )
@@ -472,8 +546,100 @@ class TinyCivEngine:
         return self._add_event(
             state,
             "discovery",
-            "A stubborn practical problem was finally solved, and the method spread quickly.",
+            random.choice([
+                "A stubborn practical problem was finally solved, and the method spread quickly between households and workshops.",
+                "A practical technique that had existed in fragments was finally understood well enough to teach reliably.",
+                "Several small improvements came together into a method useful enough that people began copying it almost immediately.",
+            ]),
         )
+
+    def _event_public_works(self, state: dict[str, Any]) -> dict[str, Any]:
+        memory = state["civilization_memory"]["public_works"]
+        eligible = [
+            item for item in PUBLIC_WORKS
+            if item[0] not in memory
+            and state["population"] >= item[1]
+            and state["knowledge"] >= item[2] - 5
+        ]
+        if not eligible:
+            return self._event_economy(state)
+
+        name, _, _ = random.choice(eligible)
+        memory.append(name)
+        state["stability"] = clamp(state["stability"] + random.uniform(1.0, 4.0))
+        state["food"] = clamp(state["food"] + random.uniform(0.0, 3.0))
+        return self._add_event(
+            state,
+            "public_works",
+            f"A coordinated public effort completed {name}, permanently changing how people moved, worked, or gathered.",
+            major=len(memory) in {1, 4, 7},
+        )
+
+    def _event_exploration(self, state: dict[str, Any]) -> dict[str, Any]:
+        memory = state["civilization_memory"]["geography"]
+        eligible = [
+            item for item in GEOGRAPHIC_DISCOVERIES
+            if item[0] not in memory
+            and state["population"] >= item[1]
+            and state["knowledge"] >= item[2] - 5
+        ]
+        if not eligible:
+            state["knowledge"] = clamp(state["knowledge"] + random.uniform(0.8, 2.2))
+            return self._add_event(
+                state,
+                "exploration",
+                "A long-ranging party returned with corrected routes and descriptions of country that had existed only as rumor on earlier maps.",
+            )
+
+        key, _, _, text = random.choice(eligible)
+        memory.append(key)
+        state["knowledge"] = clamp(state["knowledge"] + random.uniform(1.0, 3.0))
+        state["morale"] = clamp(state["morale"] + random.uniform(0.0, 2.0))
+        return self._add_event(state, "exploration", text, major=key in {"old_foundations", "coast"})
+
+    def _event_economy(self, state: dict[str, Any]) -> dict[str, Any]:
+        memory = state["civilization_memory"]["economic_changes"]
+        eligible = [
+            item for item in ECONOMIC_DEVELOPMENTS
+            if item[0] not in memory
+            and state["population"] >= item[1]
+            and state["knowledge"] >= item[2] - 5
+        ]
+        if eligible:
+            key, _, _, text = random.choice(eligible)
+            memory.append(key)
+            text = text.format(root=self._root_settlement_name(state["name"]))
+        else:
+            text = random.choice([
+                "A run of unusually strong demand changed which goods were worth carrying between settlements, and several households changed trades in response.",
+                "A shortage in one settlement and a surplus in another turned an occasional exchange route into a dependable habit.",
+                "Local producers began pooling transport and storage, allowing goods to travel farther before being consumed or traded.",
+            ])
+        state["food"] = clamp(state["food"] + random.uniform(0.5, 3.0))
+        state["stability"] = clamp(state["stability"] + random.uniform(0.0, 2.0))
+        return self._add_event(state, "economy", text)
+
+    def _event_culture(self, state: dict[str, Any]) -> dict[str, Any]:
+        memory = state["civilization_memory"]["traditions"]
+        eligible = [
+            item for item in CULTURAL_DEVELOPMENTS
+            if item[0] not in memory
+            and state["year"] >= item[1]
+            and state["knowledge"] >= item[2] - 5
+        ]
+        if eligible:
+            key, _, _, text = random.choice(eligible)
+            memory.append(key)
+        else:
+            text = random.choice([
+                "A local custom spread beyond the neighborhood that created it and became something people increasingly described as simply 'the way we do things.'",
+                "A once-private celebration became a public tradition after neighboring settlements began copying it in their own fashion.",
+                "Old stories were gathered, argued over, and retold until a shared version began to take shape across the settlements.",
+            ])
+        state["morale"] = clamp(state["morale"] + random.uniform(1.0, 4.0))
+        state["society"]["cohesion"] = clamp(state["society"].get("cohesion", 55) + random.uniform(1.0, 3.5))
+        state["society"]["tradition"] = clamp(state["society"].get("tradition", 55) + random.uniform(0.5, 2.5))
+        return self._add_event(state, "culture", text, major=bool(eligible and key == "watcher_belief"))
 
     def _event_festival(self, state: dict[str, Any]) -> dict[str, Any]:
         state["morale"] = clamp(state["morale"] + random.uniform(3, 8))
@@ -526,11 +692,38 @@ class TinyCivEngine:
         state["notables"] = state["notables"][-24:]
         effect = rng.choice(["knowledge", "health", "stability", "morale"])
         state[effect] = clamp(state[effect] + rng.uniform(1.5, 4.5))
-        return self._add_event(
-            state,
-            "notable",
-            f"{person}, a {role}, became widely known beyond their own neighborhood.",
-        )
+        deeds = {
+            "builder": [
+                "organized repairs after repeated structural failures and left behind building practices copied for years",
+                "designed a difficult public structure that other builders soon began imitating",
+            ],
+            "healer": [
+                "assembled a practical collection of remedies and observations that other healers began consulting",
+                "organized care during a season of widespread sickness and changed how the community responded to outbreaks",
+            ],
+            "teacher": [
+                "trained enough students that their method of instruction spread well beyond a single household",
+                "opened lessons to children outside their own kin group, an idea that proved unexpectedly durable",
+            ],
+            "organizer": [
+                "coordinated a difficult communal project that had defeated several earlier attempts",
+                "built a network of mutual aid between neighborhoods that survived long after the original crisis passed",
+            ],
+            "keeper of records": [
+                "compiled scattered accounts into a record later chroniclers would repeatedly rely upon",
+                "introduced a more dependable way to preserve agreements, births, deaths, and public decisions",
+            ],
+            "craftsperson": [
+                "perfected a difficult technique and taught it freely enough to transform several local workshops",
+                "produced work of such unusual quality that apprentices traveled from other settlements to study it",
+            ],
+            "explorer": [
+                "returned from a dangerous expedition with route notes that opened previously avoided country to regular travel",
+                "led several expeditions into poorly known country and produced the first maps people trusted with their lives",
+            ],
+        }
+        deed = rng.choice(deeds[role])
+        return self._add_event(state, "notable", f"{person}, a {role}, {deed}.")
 
     def _event_institution(self, state: dict[str, Any]) -> dict[str, Any]:
         eligible = [
@@ -540,7 +733,7 @@ class TinyCivEngine:
             and state["knowledge"] >= item[2] - 8
         ]
         if not eligible:
-            return self._event_civic(state)
+            return self._event_public_works(state)
         name, _, _ = random.choice(eligible)
         state["institutions"].append(name)
         state["stability"] = clamp(state["stability"] + random.uniform(2, 6))
@@ -757,22 +950,26 @@ class TinyCivEngine:
 
     def _maybe_year_event(self, state: dict[str, Any]) -> dict[str, Any] | None:
         crisis = max(state["pressures"].get("scarcity", 0), state["pressures"].get("unrest", 0))
-        event_chance = clamp(0.24 + crisis * 0.0022, 0.22, 0.48)
+        event_chance = clamp(0.28 + crisis * 0.0022, 0.26, 0.50)
         if random.random() > event_chance:
             return None
 
         choices: list[tuple[float, Callable[[dict[str, Any]], dict[str, Any]]]] = [
-            (15, self._event_harvest),
-            (10, self._event_illness),
-            (11, self._event_migration),
-            (11, self._event_discovery),
-            (10, self._event_festival),
-            (10, self._event_disaster),
-            (11, self._event_civic),
-            (8, self._event_notable),
-            (6, self._event_institution),
+            (13, self._event_harvest),
+            (8, self._event_illness),
+            (8, self._event_migration),
+            (12, self._event_discovery),
+            (7, self._event_festival),
+            (9, self._event_disaster),
+            (4, self._event_civic),
+            (6, self._event_notable),
+            (7, self._event_institution),
+            (9, self._event_public_works),
+            (9, self._event_exploration),
+            (9, self._event_economy),
+            (10, self._event_culture),
             (4, self._event_settlement),
-            (4, self._event_conflict_or_recovery),
+            (5, self._event_conflict_or_recovery),
         ]
         funcs = [f for _, f in choices]
         weights = [w for w, _ in choices]
@@ -793,13 +990,32 @@ class TinyCivEngine:
                     "until_year": state["year"] + tenure,
                 }
                 gov["last_change_year"] = state["year"]
-                return self._add_event(
-                    state,
-                    "succession",
-                    f"{old_name} left civic office. {new_name} was chosen to succeed them.",
-                    major=False,
-                    notify=False,
-                )
+
+                # Routine succession is background administration, not history.
+                # Only a transition that becomes consequential earns Chronicle ink.
+                unrest = float(state["pressures"].get("unrest", 0))
+                instability = max(0.0, 52.0 - float(state["stability"]))
+                consequential_chance = clamp(0.03 + unrest * 0.008 + instability * 0.009, 0.03, 0.58)
+                if random.random() > consequential_chance:
+                    return None
+
+                severe = state["stability"] < 34 or unrest > 36
+                if severe and random.random() < 0.18:
+                    state["stability"] = clamp(state["stability"] - random.uniform(4, 9))
+                    state["morale"] = clamp(state["morale"] - random.uniform(2, 6))
+                    text = (
+                        f"{old_name} was killed during a violent struggle over civic succession. "
+                        f"After days of uncertainty, {new_name} emerged as the new First Speaker."
+                    )
+                    return self._add_event(state, "violent_succession", text, major=True, notify=True)
+
+                state["stability"] = clamp(state["stability"] - random.uniform(1, 5))
+                texts = [
+                    f"The transfer of civic office from {old_name} to {new_name} was bitterly disputed, splitting the council and drawing crowds into the streets before the result held.",
+                    f"{old_name} resisted leaving civic office at the end of the term. Weeks of public pressure and council maneuvering ended with {new_name} taking the seat.",
+                    f"The succession of {new_name} after {old_name} triggered the first serious challenge to how civic authority was transferred, forcing the council to rewrite its own rules.",
+                ]
+                return self._add_event(state, "contested_succession", random.choice(texts), major=severe, notify=severe)
             return None
 
         if state["year"] >= 5 and (state["population"] >= 22 or random.random() < 0.08):
