@@ -2,9 +2,9 @@
 
 A tiny autonomous civilization living inside Home Assistant.
 
-## Release 0.5.0
+## Release 0.5.1
 
-TinyCiv now has a wider world that can reveal itself only through the Chronicle. There are no new observer controls or diplomacy UI; if the civilization learns that something exists beyond its familiar world, you learn it when they do.
+TinyCiv can now download the complete Chronicle as a plain-text archive. Use **Download .txt** beside the Chronicle sort controls to save the civilization's full recorded history from its earliest entry through the current year.
 
 ## Install / update
 

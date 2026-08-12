@@ -296,6 +296,7 @@ footer .version {
 .chronicle-toolbar {
   display: flex;
   gap: 6px;
+  flex-wrap: wrap;
   padding: 14px 0 2px;
 }
 
@@ -319,6 +320,14 @@ footer .version {
   color: var(--ink);
   border-color: rgba(217,185,110,.5);
   background: rgba(217,185,110,.09);
+}
+
+.chronicle-download {
+  margin-left: auto;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
 }
 
 .chronicle-pages {

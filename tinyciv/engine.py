@@ -1003,6 +1003,17 @@ class TinyCivEngine:
                 },
             }
 
+    def chronicle_export(self) -> dict[str, Any]:
+        with self._lock:
+            self.advance_to_now()
+            s = self.state
+            return {
+                "name": s["name"],
+                "year": s["year"],
+                "era": self._era(s),
+                "chronicle": list(s["chronicle"]),
+            }
+
     def visit(self) -> dict[str, Any]:
         with self._lock:
             self.advance_to_now()

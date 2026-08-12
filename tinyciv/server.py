@@ -20,7 +20,7 @@ INGRESS_ALLOWED_IP = os.getenv("TINYCIV_INGRESS_ALLOWED_IP", "172.30.32.2")
 STATIC_DIR = Path(os.getenv("TINYCIV_STATIC_DIR", "/opt/tinyciv/static"))
 SUPERVISOR_TOKEN = os.getenv("SUPERVISOR_TOKEN", "")
 
-APP_VERSION = "0.5.0"
+APP_VERSION = "0.5.1"
 
 engine = TinyCivEngine()
 
@@ -221,7 +221,7 @@ def simulation_worker() -> None:
 
 
 class TinyCivHandler(BaseHTTPRequestHandler):
-    server_version = "TinyCiv/0.5.0"
+    server_version = "TinyCiv/0.5.1"
 
     def log_message(self, fmt: str, *args) -> None:
         print(f"TinyCiv HTTP: {self.address_string()} - {fmt % args}", flush=True)
@@ -230,6 +230,20 @@ class TinyCivHandler(BaseHTTPRequestHandler):
         body = json_bytes(data)
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_text_download(self, text: str, filename: str) -> None:
+        body = text.encode("utf-8")
+        safe_filename = "".join(
+            char if char.isascii() and (char.isalnum() or char in {"-", "_", "."}) else "-"
+            for char in filename
+        ).strip("-") or "TinyCiv-Chronicle.txt"
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Disposition", f'attachment; filename="{safe_filename}"')
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
@@ -280,6 +294,25 @@ class TinyCivHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/notifications":
             self._send_json(notification_settings_payload())
+            return
+        if path == "/api/chronicle.txt":
+            archive = engine.chronicle_export()
+            lines = [
+                "TinyCiv — The Chronicle",
+                f"Civilization: {archive['name']}",
+                f"Current Year: {archive['year']}",
+                f"Era: {archive['era']}",
+                "",
+            ]
+            entries = archive.get("chronicle", [])
+            if entries:
+                for event in entries:
+                    lines.append(f"YR {event['year']} — {event['text']}")
+            else:
+                lines.append("The chronicle is waiting for its first entry.")
+            lines.append("")
+            filename = f"TinyCiv-{archive['name']}-Chronicle-YR{archive['year']}.txt"
+            self._send_text_download("\n".join(lines), filename)
             return
         if path == "/api/state":
             try:
