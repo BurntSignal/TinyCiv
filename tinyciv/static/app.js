@@ -147,7 +147,7 @@ function renderState(state) {
   $("food").textContent = metric(state.metrics.food);
   $("health").textContent = metric(state.metrics.health);
   $("morale").textContent = metric(state.metrics.morale);
-  $("knowledge").textContent = metric(state.metrics.knowledge);
+  $("knowledge").textContent = number(state.metrics.knowledge);
   $("stability").textContent = metric(state.metrics.stability);
   $("civ-summary").textContent =
     `${state.era}. Population ${number(state.population)}. The world continues without you.`;

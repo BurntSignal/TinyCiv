@@ -397,7 +397,8 @@ class TinyCivEngine:
         society = state["society"]
         pressures = state["pressures"]
 
-        state["knowledge"] = clamp(
+        state["knowledge"] = max(
+            0.0,
             state["knowledge"]
             + random.uniform(0.12, 0.62)
             + max(0.0, society.get("cohesion", 50) - 50) * 0.002
@@ -534,7 +535,7 @@ class TinyCivEngine:
         if available:
             name, threshold = random.choice(available)
             state["discoveries"].append(name)
-            state["knowledge"] = clamp(max(state["knowledge"], threshold) + random.uniform(1.5, 4.5))
+            state["knowledge"] = max(state["knowledge"], threshold) + random.uniform(1.5, 4.5)
             return self._add_event(
                 state,
                 "discovery",
@@ -542,7 +543,7 @@ class TinyCivEngine:
                 major=threshold >= 64,
                 notify=threshold >= 82,
             )
-        state["knowledge"] = clamp(state["knowledge"] + random.uniform(2.0, 5.0))
+        state["knowledge"] = max(0.0, state["knowledge"] + random.uniform(2.0, 5.0))
         return self._add_event(
             state,
             "discovery",
@@ -584,7 +585,7 @@ class TinyCivEngine:
             and state["knowledge"] >= item[2] - 5
         ]
         if not eligible:
-            state["knowledge"] = clamp(state["knowledge"] + random.uniform(0.8, 2.2))
+            state["knowledge"] = max(0.0, state["knowledge"] + random.uniform(0.8, 2.2))
             return self._add_event(
                 state,
                 "exploration",
@@ -593,7 +594,7 @@ class TinyCivEngine:
 
         key, _, _, text = random.choice(eligible)
         memory.append(key)
-        state["knowledge"] = clamp(state["knowledge"] + random.uniform(1.0, 3.0))
+        state["knowledge"] = max(0.0, state["knowledge"] + random.uniform(1.0, 3.0))
         state["morale"] = clamp(state["morale"] + random.uniform(0.0, 2.0))
         return self._add_event(state, "exploration", text, major=key in {"old_foundations", "coast"})
 
@@ -691,7 +692,11 @@ class TinyCivEngine:
         state["notables"].append({"name": person, "role": role, "first_recorded_year": state["year"]})
         state["notables"] = state["notables"][-24:]
         effect = rng.choice(["knowledge", "health", "stability", "morale"])
-        state[effect] = clamp(state[effect] + rng.uniform(1.5, 4.5))
+        gain = rng.uniform(1.5, 4.5)
+        if effect == "knowledge":
+            state[effect] = max(0.0, state[effect] + gain)
+        else:
+            state[effect] = clamp(state[effect] + gain)
         deeds = {
             "builder": [
                 "organized repairs after repeated structural failures and left behind building practices copied for years",
@@ -819,7 +824,7 @@ class TinyCivEngine:
             f"For the first time, travelers from {name} reached {root}, confirming years of stories about another settled people.",
             f"Explorers from {root} made peaceful contact with people of {name} and returned with the first reliable account of their homeland.",
         ]
-        state["knowledge"] = clamp(state["knowledge"] + random.uniform(0.5, 2.0))
+        state["knowledge"] = max(0.0, state["knowledge"] + random.uniform(0.5, 2.0))
         state["morale"] = clamp(state["morale"] + random.uniform(-0.5, 2.5))
         return self._add_event(state, "first_contact", random.choice(texts), major=True, notify=True)
 
@@ -835,7 +840,7 @@ class TinyCivEngine:
             f"Representatives of {name} spent a season in {root}. By the time they departed, both sides had agreed to keep a regular route open.",
         ]
         state["food"] = clamp(state["food"] + random.uniform(1.0, 4.0))
-        state["knowledge"] = clamp(state["knowledge"] + random.uniform(1.0, 3.0))
+        state["knowledge"] = max(0.0, state["knowledge"] + random.uniform(1.0, 3.0))
         state["morale"] = clamp(state["morale"] + random.uniform(0.5, 2.5))
         return self._add_event(state, "foreign_exchange", random.choice(texts), major=True, notify=True)
 
@@ -879,7 +884,7 @@ class TinyCivEngine:
             ]
             return self._add_event(state, "foreign_trade", random.choice(texts))
 
-        state["knowledge"] = clamp(state["knowledge"] + random.uniform(1.0, 3.5))
+        state["knowledge"] = max(0.0, state["knowledge"] + random.uniform(1.0, 3.5))
         contact["relation"] = clamp(relation + random.uniform(0, 3))
         texts = [
             f"Craftworkers returning from {name} introduced methods that quickly found uses in local workshops.",

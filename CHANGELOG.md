@@ -1,8 +1,7 @@
-# TinyCiv 0.5.2
+# TinyCiv 0.5.3
 
-- Rebalanced The Chronicle around **historical significance rather than administrative bookkeeping**.
-- Routine civic-office succession now continues in the background without automatically creating a Chronicle entry. The first formal civic office remains historic; later transitions surface only when the transition itself becomes consequential.
-- Greatly broadened the kinds of civilization-scale developments that can become Chronicle-worthy, including culture, exploration, public works, economic change, technology, institutions, harvest crises, and consequential people.
-- Notable people now enter recorded history for a remembered deed or contribution rather than simply becoming well known.
-- Slightly widened the flow of meaningful developments without turning The Chronicle into a yearly activity log.
-- Existing civilizations, Chronicle history, notification settings, and observer-only gameplay are preserved. Existing Chronicle entries are not rewritten or removed.
+- Knowledge is now an **unbounded civilization index** rather than a 0–100 percentage.
+- Knowledge can continue accumulating past 100 through ordinary progress, discoveries, exploration, notable contributions, and wider-world exchange.
+- The Civilization At A Glance card now displays Knowledge as a plain index value with its existing since-last-visit delta, removing the misleading percent sign.
+- Health, Food, Morale, Stability, and other condition-style values retain their existing 0–100 behavior.
+- Existing civilizations and Chronicle history are preserved; a civilization already at Knowledge 100 can begin advancing beyond it after updating.
