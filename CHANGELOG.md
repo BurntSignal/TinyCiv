@@ -1,7 +1,6 @@
-# TinyCiv 0.5.3
+# TinyCiv 0.5.4
 
-- Knowledge is now an **unbounded civilization index** rather than a 0–100 percentage.
-- Knowledge can continue accumulating past 100 through ordinary progress, discoveries, exploration, notable contributions, and wider-world exchange.
-- The Civilization At A Glance card now displays Knowledge as a plain index value with its existing since-last-visit delta, removing the misleading percent sign.
-- Health, Food, Morale, Stability, and other condition-style values retain their existing 0–100 behavior.
-- Existing civilizations and Chronicle history are preserved; a civilization already at Knowledge 100 can begin advancing beyond it after updating.
+- Fixed the observer-belief Chronicle event so the root settlement name is inserted correctly instead of displaying the literal `{root}` placeholder.
+- Added a one-time safe repair for any already-saved Chronicle entry containing that leaked placeholder.
+- Audited the event text templates for other unexpanded named placeholders; no additional cases were found.
+- No simulation balance or feature changes.

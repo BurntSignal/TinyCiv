@@ -305,6 +305,18 @@ class TinyCivEngine:
                 state[key] = value
                 changed = True
 
+        root_name = self._root_settlement_name(str(state.get("name", "TinyCiv")))
+        for event in state.get("chronicle", []):
+            if (
+                isinstance(event, dict)
+                and isinstance(event.get("text"), str)
+                and event["text"].startswith("A belief spread that an unseen watcher beyond the world")
+            ):
+                repaired_text = event["text"].format(root=root_name)
+                if repaired_text != event["text"]:
+                    event["text"] = repaired_text
+                    changed = True
+
         memory = state.get("civilization_memory")
         if not isinstance(memory, dict):
             memory = {}
@@ -631,6 +643,7 @@ class TinyCivEngine:
         if eligible:
             key, _, _, text = random.choice(eligible)
             memory.append(key)
+            text = text.format(root=self._root_settlement_name(state["name"]))
         else:
             text = random.choice([
                 "A local custom spread beyond the neighborhood that created it and became something people increasingly described as simply 'the way we do things.'",
