@@ -14,7 +14,7 @@ from typing import Any, Callable
 YEAR_SECONDS = int(os.getenv("TINYCIV_YEAR_SECONDS", "3600"))
 DATA_DIR = Path(os.getenv("TINYCIV_DATA_DIR", "/data"))
 STATE_PATH = DATA_DIR / "tinyciv_state.json"
-WORLD_SCHEMA = 6
+WORLD_SCHEMA = 7
 
 SETTLEMENT_NAMES = [
     "Mossvale", "Brasswick", "Fernhollow", "Emberford", "Tinkerfen",
@@ -173,6 +173,144 @@ class TinyCivEngine:
             return "Village Age"
         return "Hearth Age"
 
+    def _initial_demography(
+        self,
+        population: int,
+        *,
+        food: float,
+        health: float,
+        morale: float,
+        stability: float,
+        migration: bool,
+    ) -> dict[str, Any]:
+        """Create hidden carrying-capacity state.
+
+        Capacity is deliberately not a hard population ceiling. It represents
+        the amount of food production, housing, sanitation, and transport the
+        civilization can currently sustain without mounting demographic
+        pressure. Every component can expand without an upper bound.
+        """
+        pop = max(2.0, float(population))
+        if migration:
+            # Existing worlds should not be punished on upgrade. A prosperous
+            # civilization begins close enough to its current limits for future
+            # growth to create pressure, but never drops into an instant crisis.
+            quality = clamp((food + health + morale + stability) / 400.0, 0.0, 1.0)
+            base = 1.06 + quality * 0.18
+            factors = {
+                "food_capacity": base + (food - 50.0) * 0.0010,
+                "housing_capacity": base - 0.035 + (morale - 50.0) * 0.0007,
+                "sanitation_capacity": base - 0.020 + (health - 50.0) * 0.0009,
+                "logistics_capacity": base - 0.045 + (stability - 50.0) * 0.0008,
+            }
+        else:
+            # Founding settlements have room to spread out. Population can
+            # grow quickly at first, then gradually catches the infrastructure.
+            factors = {
+                "food_capacity": 2.05,
+                "housing_capacity": 1.90,
+                "sanitation_capacity": 1.82,
+                "logistics_capacity": 1.78,
+            }
+
+        result: dict[str, Any] = {
+            key: max(8.0, pop * clamp(value, 0.92, 2.40))
+            for key, value in factors.items()
+        }
+        result.update({
+            "pressure": 0.0,
+            "crowding": 0.0,
+            "years_strained": 0,
+            "years_relief": 0,
+            "last_pressure_event_year": 0,
+        })
+        return result
+
+    def _capacity(self, state: dict[str, Any]) -> float:
+        d = state.get("demography", {})
+        capacities = [
+            max(1.0, float(d.get("food_capacity", state["population"]))),
+            max(1.0, float(d.get("housing_capacity", state["population"]))),
+            max(1.0, float(d.get("sanitation_capacity", state["population"]))),
+            max(1.0, float(d.get("logistics_capacity", state["population"]))),
+        ]
+        # Harmonic mean makes a weak link matter without imposing a literal
+        # minimum-sector hard cap.
+        return len(capacities) / sum(1.0 / value for value in capacities)
+
+    def _demographic_ratios(self, state: dict[str, Any]) -> dict[str, float]:
+        pop = max(1.0, float(state["population"]))
+        d = state["demography"]
+        return {
+            "food": pop / max(1.0, float(d["food_capacity"])),
+            "housing": pop / max(1.0, float(d["housing_capacity"])),
+            "sanitation": pop / max(1.0, float(d["sanitation_capacity"])),
+            "logistics": pop / max(1.0, float(d["logistics_capacity"])),
+            "overall": pop / max(1.0, self._capacity(state)),
+        }
+
+    def _boost_capacity(self, state: dict[str, Any], **boosts: float) -> None:
+        d = state.get("demography")
+        if not isinstance(d, dict):
+            return
+        for key, amount in boosts.items():
+            capacity_key = key if key.endswith("_capacity") else f"{key}_capacity"
+            if capacity_key in d:
+                d[capacity_key] = max(8.0, float(d[capacity_key]) * (1.0 + max(-0.80, amount)))
+
+    def _damage_capacity(self, state: dict[str, Any], **losses: float) -> None:
+        self._boost_capacity(state, **{key: -abs(value) for key, value in losses.items()})
+
+    def _advance_capacity(self, state: dict[str, Any]) -> dict[str, float]:
+        d = state["demography"]
+        pop = max(2.0, float(state["population"]))
+        quality = clamp((state["food"] + state["health"] + state["morale"] + state["stability"]) / 400.0, 0.0, 1.0)
+        knowledge = max(0.0, float(state["knowledge"]))
+        settlements = max(1, len(state.get("settlements", [])))
+
+        before = self._demographic_ratios(state)
+        pressure_response = max(0.0, before["overall"] - 0.72) * 0.0025
+        knowledge_gain = min(0.0007, math.log1p(knowledge) * 0.00014)
+        settlement_gain = min(0.0005, (settlements - 1) * 0.00014)
+        prosperity_gain = max(0.0, quality - 0.52) * 0.0018
+        utilization = clamp(before["overall"] / 0.78, 0.18, 1.15)
+        base_growth = (0.0004 + knowledge_gain + settlement_gain + prosperity_gain) * utilization + pressure_response
+        if before["overall"] < 0.34:
+            base_growth -= (0.34 - before["overall"]) * 0.010
+
+        # Capacity expands continuously through thousands of mundane private
+        # decisions that are not Chronicle-worthy. The four sectors do not
+        # improve in lockstep, so bottlenecks can emerge naturally.
+        modifiers = {
+            "food_capacity": (state["food"] - 50.0) * 0.000006,
+            "housing_capacity": (state["morale"] - 50.0) * 0.000004 + (state["stability"] - 50.0) * 0.000003,
+            "sanitation_capacity": (state["health"] - 50.0) * 0.000005 + knowledge * 0.0000003,
+            "logistics_capacity": (state["stability"] - 50.0) * 0.000004 + knowledge * 0.0000004,
+        }
+        for key, modifier in modifiers.items():
+            annual = clamp(base_growth + modifier + random.uniform(-0.0028, 0.0028), -0.006, 0.032)
+            d[key] = max(8.0, float(d[key]) * (1.0 + annual))
+
+        ratios = self._demographic_ratios(state)
+        strain = max(0.0, ratios["overall"] - 0.72)
+        crowding = max(0.0, ratios["housing"] - 0.72)
+        d["pressure"] = clamp(strain * 180.0, 0.0, 100.0)
+        d["crowding"] = clamp(crowding * 170.0, 0.0, 100.0)
+        if ratios["overall"] > 0.82:
+            d["years_strained"] = int(d.get("years_strained", 0)) + 1
+            d["years_relief"] = 0
+        elif ratios["overall"] < 0.74:
+            d["years_relief"] = int(d.get("years_relief", 0)) + 1
+            d["years_strained"] = max(0, int(d.get("years_strained", 0)) - 1)
+        else:
+            d["years_relief"] = 0
+            d["years_strained"] = max(0, int(d.get("years_strained", 0)) - 1)
+
+        # Keep floating capacities numerically sane even after many millennia.
+        for key in ("food_capacity", "housing_capacity", "sanitation_capacity", "logistics_capacity"):
+            d[key] = max(8.0, min(float(d[key]), 1e300))
+        return ratios
+
     def _new_state(self) -> dict[str, Any]:
         now = utc_now()
         settlement = random.choice(SETTLEMENT_NAMES)
@@ -236,6 +374,15 @@ class TinyCivEngine:
             },
             "pending_notification_years": [],
         }
+        state["demography"] = self._initial_demography(
+            state["population"],
+            food=state["food"],
+            health=state["health"],
+            morale=state["morale"],
+            stability=state["stability"],
+            migration=False,
+        )
+
         self._add_event(
             state,
             "founding",
@@ -348,6 +495,33 @@ class TinyCivEngine:
                 wider["last_event_year"] = 0
                 changed = True
 
+        demography = state.get("demography")
+        if not isinstance(demography, dict):
+            state["demography"] = self._initial_demography(
+                int(state.get("population", 2)),
+                food=float(state.get("food", 65)),
+                health=float(state.get("health", 65)),
+                morale=float(state.get("morale", 65)),
+                stability=float(state.get("stability", 65)),
+                migration=True,
+            )
+            demography = state["demography"]
+            changed = True
+        else:
+            population = max(2, int(state.get("population", 2)))
+            fallback = self._initial_demography(
+                population,
+                food=float(state.get("food", 65)),
+                health=float(state.get("health", 65)),
+                morale=float(state.get("morale", 65)),
+                stability=float(state.get("stability", 65)),
+                migration=True,
+            )
+            for key, value in fallback.items():
+                if key not in demography:
+                    demography[key] = value
+                    changed = True
+
         if schema != WORLD_SCHEMA:
             state["schema_version"] = WORLD_SCHEMA
             changed = True
@@ -396,11 +570,26 @@ class TinyCivEngine:
 
     def _update_pressures(self, state: dict[str, Any]) -> None:
         p = state["pressures"]
-        scarcity_target = max(0.0, 50.0 - state["food"]) * 1.4
-        unrest_target = max(0.0, 52.0 - state["stability"]) + max(0.0, 45.0 - state["morale"]) * 0.7
+        ratios = self._demographic_ratios(state)
+        demographic_scarcity = max(0.0, ratios["food"] - 0.80) * 58.0
+        demographic_unrest = (
+            max(0.0, ratios["housing"] - 0.82) * 34.0
+            + max(0.0, ratios["logistics"] - 0.84) * 30.0
+        )
+        scarcity_target = max(0.0, 50.0 - state["food"]) * 1.4 + demographic_scarcity
+        unrest_target = (
+            max(0.0, 52.0 - state["stability"])
+            + max(0.0, 45.0 - state["morale"]) * 0.7
+            + demographic_unrest
+        )
         p["scarcity"] = clamp(p.get("scarcity", 0.0) * 0.72 + scarcity_target * 0.28)
         p["unrest"] = clamp(p.get("unrest", 0.0) * 0.76 + unrest_target * 0.24)
-        if state["food"] > 58 and state["health"] > 58 and state["stability"] > 58:
+        if (
+            state["food"] > 58
+            and state["health"] > 58
+            and state["stability"] > 58
+            and ratios["overall"] < 0.92
+        ):
             p["recovery"] = clamp(p.get("recovery", 0.0) + 4.0)
         else:
             p["recovery"] = clamp(p.get("recovery", 0.0) - 6.0)
@@ -408,42 +597,74 @@ class TinyCivEngine:
     def _baseline_year(self, state: dict[str, Any]) -> None:
         society = state["society"]
         pressures = state["pressures"]
+        ratios = self._advance_capacity(state)
+        population = max(2, int(state["population"]))
+        complexity = max(0.0, math.log10(max(10, population)) - 2.0)
 
         state["knowledge"] = max(
             0.0,
             state["knowledge"]
             + random.uniform(0.12, 0.62)
-            + max(0.0, society.get("cohesion", 50) - 50) * 0.002
+            + max(0.0, society.get("cohesion", 50) - 50) * 0.002,
         )
+
+        food_strain = max(0.0, ratios["food"] - 0.72)
+        housing_strain = max(0.0, ratios["housing"] - 0.72)
+        sanitation_strain = max(0.0, ratios["sanitation"] - 0.72)
+        logistics_strain = max(0.0, ratios["logistics"] - 0.72)
+        overall_strain = max(0.0, ratios["overall"] - 0.72)
+
+        # Prosperity can be excellent, but very high scores no longer become a
+        # permanent absorbing state. Large populations also create ordinary
+        # coordination costs even when society is functioning well.
         state["food"] = clamp(
             state["food"]
             + random.uniform(-3.2, 3.2)
             - pressures.get("scarcity", 0.0) * 0.012
+            - food_strain * 4.8
+            - max(0.0, state["food"] - 94.0) * 0.045
+            + max(0.0, 38.0 - state["food"]) * 0.040
         )
         state["health"] = clamp(
             state["health"]
-            + (state["food"] - 50) * 0.025
+            + (state["food"] - 50) * 0.021
             + random.uniform(-1.7, 1.7)
+            - sanitation_strain * 4.2
+            - overall_strain * 1.2
+            - max(0.0, state["health"] - 94.0) * 0.050
+            + max(0.0, 44.0 - state["health"]) * 0.045
         )
         state["morale"] = clamp(
             state["morale"]
-            + (state["stability"] - 50) * 0.018
-            + (state["food"] - 50) * 0.009
+            + (state["stability"] - 50) * 0.015
+            + (state["food"] - 50) * 0.007
             + random.uniform(-1.9, 1.9)
+            - housing_strain * 3.7
+            - logistics_strain * 1.3
+            - complexity * 0.08
+            - max(0.0, state["morale"] - 95.0) * 0.050
+            + max(0.0, 44.0 - state["morale"]) * 0.050
         )
         state["stability"] = clamp(
             state["stability"]
-            + (state["morale"] - 50) * 0.012
-            + (society.get("cohesion", 50) - 50) * 0.012
+            + (state["morale"] - 50) * 0.009
+            + (society.get("cohesion", 50) - 50) * 0.010
             - pressures.get("unrest", 0.0) * 0.015
             + random.uniform(-1.35, 1.35)
+            - logistics_strain * 3.6
+            - housing_strain * 1.2
+            - complexity * 0.12
+            - max(0.0, state["stability"] - 95.0) * 0.055
+            + max(0.0, 44.0 - state["stability"]) * 0.060
         )
 
         society["cohesion"] = clamp(
             society.get("cohesion", 55)
-            + (state["morale"] - 50) * 0.008
-            + (state["stability"] - 50) * 0.006
+            + (state["morale"] - 50) * 0.006
+            + (state["stability"] - 50) * 0.004
             + random.uniform(-0.9, 0.9)
+            - overall_strain * 0.8
+            + max(0.0, 42.0 - society.get("cohesion", 55)) * 0.035
         )
         society["tradition"] = clamp(
             society.get("tradition", 55)
@@ -452,33 +673,40 @@ class TinyCivEngine:
         )
 
         quality = (state["food"] + state["health"] + state["morale"] + state["stability"]) / 400.0
-        carrying_capacity = (
-            80
-            + (state["knowledge"] ** 2) * 8
-            + len(state.get("settlements", [])) * 350
-            + len(state.get("institutions", [])) * 260
+        # Fertility responds continuously to living conditions and available
+        # room. There is no maximum population: if capacity expands, the same
+        # civilization can begin growing rapidly again at any scale.
+        fertility_drag = max(0.0, ratios["overall"] - 0.60) * 0.085
+        overload_drag = max(0.0, ratios["overall"] - 1.0) * 0.080
+        growth_rate = (
+            -0.010
+            + quality * 0.040
+            - fertility_drag
+            - overload_drag
+            + random.uniform(-0.009, 0.009)
         )
-        density = state["population"] / max(1.0, carrying_capacity)
-        density_pressure = max(0.0, density - 0.68) * 0.055
-        if density > 0.72:
-            state["food"] = clamp(state["food"] - (density - 0.72) * 1.8)
-        growth_rate = -0.012 + quality * 0.043 - density_pressure + random.uniform(-0.011, 0.011)
         delta_float = state["population"] * growth_rate
         delta = math.floor(delta_float)
         fraction = delta_float - delta
         if random.random() < fraction:
             delta += 1
-        if state["population"] < 40 and delta == 0 and quality > 0.58 and random.random() < 0.34:
+        if state["population"] < 40 and delta == 0 and quality > 0.58 and ratios["overall"] < 0.92 and random.random() < 0.34:
             delta = 1
         state["population"] = max(2, state["population"] + delta)
         state["population_peak"] = max(int(state.get("population_peak", 0)), state["population"])
 
+        # Refresh hidden pressure after births/deaths so event selection sees the
+        # current population rather than last year's denominator.
+        current_ratios = self._demographic_ratios(state)
+        state["demography"]["pressure"] = clamp(max(0.0, current_ratios["overall"] - 0.72) * 180.0)
+        state["demography"]["crowding"] = clamp(max(0.0, current_ratios["housing"] - 0.72) * 170.0)
         self._update_pressures(state)
 
     def _event_harvest(self, state: dict[str, Any]) -> dict[str, Any]:
         poor_bias = clamp((55 - state["food"]) / 100, 0, 0.35)
         if random.random() < 0.45 + poor_bias:
             state["food"] = clamp(state["food"] - random.uniform(8, 19))
+            self._damage_capacity(state, food=random.uniform(0.006, 0.022))
             state["morale"] = clamp(state["morale"] - random.uniform(2, 6))
             severe = state["food"] < 27
             if severe:
@@ -500,6 +728,7 @@ class TinyCivEngine:
             )
         state["food"] = clamp(state["food"] + random.uniform(9, 18))
         state["morale"] = clamp(state["morale"] + random.uniform(2, 6))
+        self._boost_capacity(state, food=random.uniform(0.008, 0.025))
         return self._add_event(
             state,
             "harvest",
@@ -507,7 +736,10 @@ class TinyCivEngine:
         )
 
     def _event_illness(self, state: dict[str, Any]) -> dict[str, Any]:
-        severity = random.uniform(0.018, 0.075) * (1.2 if state["health"] < 48 else 1.0)
+        ratios = self._demographic_ratios(state)
+        crowding_multiplier = 1.0 + max(0.0, ratios["sanitation"] - 0.70) * 1.45 + max(0.0, ratios["housing"] - 0.82) * 0.55
+        severity = random.uniform(0.018, 0.075) * (1.2 if state["health"] < 48 else 1.0) * crowding_multiplier
+        severity = min(severity, 0.16)
         loss = max(1, int(round(state["population"] * severity)))
         state["population"] = max(2, state["population"] - loss)
         state["health"] = clamp(state["health"] - random.uniform(4, 10))
@@ -522,19 +754,28 @@ class TinyCivEngine:
         )
 
     def _event_migration(self, state: dict[str, Any]) -> dict[str, Any]:
-        if state["morale"] < 38 or state["stability"] < 34:
-            loss = max(1, random.randint(1, max(2, int(math.sqrt(state["population"])))))
+        ratios = self._demographic_ratios(state)
+        strained = ratios["overall"] > 0.96 or ratios["housing"] > 1.02
+        if state["morale"] < 38 or state["stability"] < 34 or strained:
+            scale = 1.0 + max(0.0, ratios["overall"] - 0.90) * 4.0
+            loss = max(1, int(random.randint(1, max(2, int(math.sqrt(state["population"])))) * scale))
             state["population"] = max(2, state["population"] - loss)
+            text = (
+                f"Several households left crowded districts in search of land and steadier prospects elsewhere. The population fell by {loss}."
+                if strained and state["morale"] >= 38 and state["stability"] >= 34
+                else f"Several households left in search of steadier ground. The population fell by {loss}."
+            )
             return self._add_event(
                 state,
                 "migration",
-                f"Several households left in search of steadier ground. The population fell by {loss}.",
-                major=loss >= 6,
+                text,
+                major=loss >= max(12, int(state["population"] * 0.01)),
                 notify=False,
             )
-        gain = random.randint(1, max(2, int(math.sqrt(state["population"]) + 1)))
+        gain_scale = clamp((0.95 - ratios["overall"]) / 0.35, 0.20, 1.0)
+        gain = max(1, int(random.randint(1, max(2, int(math.sqrt(state["population"]) + 1))) * gain_scale))
         state["population"] += gain
-        state["morale"] = clamp(state["morale"] + random.uniform(1, 4))
+        state["morale"] = clamp(state["morale"] + random.uniform(0.5, 3.0))
         state["population_peak"] = max(state["population_peak"], state["population"])
         return self._add_event(
             state,
@@ -548,6 +789,20 @@ class TinyCivEngine:
             name, threshold = random.choice(available)
             state["discoveries"].append(name)
             state["knowledge"] = max(state["knowledge"], threshold) + random.uniform(1.5, 4.5)
+            discovery_boosts = {
+                "crop rotation": {"food": 0.10},
+                "kiln-fired brick": {"housing": 0.07},
+                "water-driven milling": {"food": 0.045, "logistics": 0.025},
+                "formal surveying": {"housing": 0.035, "logistics": 0.045},
+                "movable type": {"logistics": 0.025, "sanitation": 0.015},
+                "precision gearing": {"logistics": 0.055},
+                "mechanical pumping": {"sanitation": 0.09, "food": 0.035},
+                "standardized measures": {"logistics": 0.075},
+                "optical glass": {"sanitation": 0.025},
+                "steam pressure": {"logistics": 0.085, "food": 0.025},
+                "electrical induction": {"logistics": 0.09, "sanitation": 0.045},
+            }
+            self._boost_capacity(state, **discovery_boosts.get(name, {}))
             return self._add_event(
                 state,
                 "discovery",
@@ -581,6 +836,17 @@ class TinyCivEngine:
         memory.append(name)
         state["stability"] = clamp(state["stability"] + random.uniform(1.0, 4.0))
         state["food"] = clamp(state["food"] + random.uniform(0.0, 3.0))
+        lowered = name.lower()
+        if "well" in lowered or "cistern" in lowered:
+            self._boost_capacity(state, sanitation=random.uniform(0.07, 0.12), housing=0.015)
+        elif "drain" in lowered or "irrigation" in lowered:
+            self._boost_capacity(state, food=random.uniform(0.07, 0.11), sanitation=random.uniform(0.025, 0.055))
+        elif "road" in lowered or "bridge" in lowered:
+            self._boost_capacity(state, logistics=random.uniform(0.07, 0.12), housing=0.025)
+        elif "market" in lowered or "square" in lowered:
+            self._boost_capacity(state, logistics=random.uniform(0.05, 0.09), housing=random.uniform(0.025, 0.05))
+        else:
+            self._boost_capacity(state, food=0.02, housing=0.02, sanitation=0.02, logistics=0.02)
         return self._add_event(
             state,
             "public_works",
@@ -669,12 +935,15 @@ class TinyCivEngine:
         state["stability"] = clamp(state["stability"] - random.uniform(4, 11))
         state["morale"] = clamp(state["morale"] - random.uniform(1, 5))
         if kind == "fire":
+            self._damage_capacity(state, housing=random.uniform(0.012, 0.045), logistics=random.uniform(0.004, 0.018))
             text = "A night fire consumed homes and workshops before bucket lines contained it."
         elif kind == "storm":
             state["food"] = clamp(state["food"] - random.uniform(3, 10))
+            self._damage_capacity(state, food=random.uniform(0.010, 0.035), housing=random.uniform(0.006, 0.025))
             text = "A violent storm tore through fields and roofs, leaving months of repairs behind."
         else:
             state["food"] = clamp(state["food"] - random.uniform(4, 12))
+            self._damage_capacity(state, sanitation=random.uniform(0.012, 0.040), housing=random.uniform(0.008, 0.030), logistics=random.uniform(0.006, 0.022))
             text = "Floodwater crossed familiar boundaries and forced whole streets onto higher ground."
         severe = state["stability"] < 28 or state["food"] < 22
         return self._add_event(state, kind, text, major=severe, notify=severe)
@@ -755,6 +1024,18 @@ class TinyCivEngine:
         name, _, _ = random.choice(eligible)
         state["institutions"].append(name)
         state["stability"] = clamp(state["stability"] + random.uniform(2, 6))
+        institution_boosts = {
+            "a public granary": {"food": 0.075, "logistics": 0.020},
+            "an infirmary": {"sanitation": 0.080},
+            "a record hall": {"logistics": 0.025},
+            "a schoolhouse": {"logistics": 0.015},
+            "a market council": {"logistics": 0.060},
+            "a survey office": {"housing": 0.035, "logistics": 0.045},
+            "a civic court": {"housing": 0.015, "logistics": 0.030},
+            "an academy": {"sanitation": 0.020, "logistics": 0.030},
+            "a public works office": {"food": 0.035, "housing": 0.045, "sanitation": 0.045, "logistics": 0.055},
+        }
+        self._boost_capacity(state, **institution_boosts.get(name, {}))
         return self._add_event(
             state,
             "institution",
@@ -772,6 +1053,13 @@ class TinyCivEngine:
         name = random.choice(available)
         state["settlements"].append({"name": name, "founded_year": state["year"]})
         state["morale"] = clamp(state["morale"] + random.uniform(1, 4))
+        self._boost_capacity(
+            state,
+            food=random.uniform(0.10, 0.18),
+            housing=random.uniform(0.16, 0.26),
+            sanitation=random.uniform(0.06, 0.12),
+            logistics=random.uniform(0.04, 0.09),
+        )
         return self._add_event(
             state,
             "settlement",
@@ -779,6 +1067,76 @@ class TinyCivEngine:
             major=True,
             notify=True,
         )
+
+    def _event_population_pressure(self, state: dict[str, Any]) -> dict[str, Any]:
+        ratios = self._demographic_ratios(state)
+        bottlenecks = {
+            "food": ratios["food"],
+            "housing": ratios["housing"],
+            "sanitation": ratios["sanitation"],
+            "logistics": ratios["logistics"],
+        }
+        sector = max(bottlenecks, key=bottlenecks.get)
+        years = int(state.get("demography", {}).get("years_strained", 0))
+        capable_response = state["stability"] >= 58 and state["knowledge"] >= 35
+        response_chance = clamp(0.24 + years * 0.025 + max(0.0, state["stability"] - 60) * 0.004, 0.24, 0.68)
+
+        if capable_response and random.random() < response_chance:
+            if sector == "food":
+                self._boost_capacity(state, food=random.uniform(0.065, 0.115), logistics=random.uniform(0.010, 0.025))
+                state["food"] = clamp(state["food"] + random.uniform(1.0, 4.0))
+                text = "Years of pressure on grain supplies pushed farmers to bring new land into regular cultivation and reorganize storage around the growing settlements."
+            elif sector == "housing":
+                self._boost_capacity(state, housing=random.uniform(0.075, 0.125), logistics=random.uniform(0.008, 0.020))
+                state["morale"] = clamp(state["morale"] + random.uniform(1.0, 3.0))
+                text = "Building spread beyond the old edges of the largest settlements as crowded households pressed for new streets and permanent homes."
+            elif sector == "sanitation":
+                self._boost_capacity(state, sanitation=random.uniform(0.080, 0.135), housing=random.uniform(0.005, 0.018))
+                state["health"] = clamp(state["health"] + random.uniform(1.0, 3.5))
+                text = "Repeated sickness in crowded districts forced a sustained effort to improve wells, drainage, and waste removal across the busiest neighborhoods."
+            else:
+                self._boost_capacity(state, logistics=random.uniform(0.080, 0.135), housing=random.uniform(0.006, 0.018))
+                state["stability"] = clamp(state["stability"] + random.uniform(1.0, 3.0))
+                text = "Congested roads and markets finally prompted a coordinated expansion of routes, storage yards, and places where goods could change hands."
+            state["demography"]["last_pressure_event_year"] = state["year"]
+            return self._add_event(state, "capacity_response", text, major=False, notify=False)
+
+        if sector == "food":
+            state["food"] = clamp(state["food"] - random.uniform(2.0, 6.0))
+            state["morale"] = clamp(state["morale"] - random.uniform(1.0, 3.0))
+            text = random.choice([
+                "Food prices rose through several seasons as farms and storehouses struggled to keep pace with the growing population.",
+                "Grain became noticeably harder to obtain in the busiest settlements, and arguments over prices and allotments spilled into public meetings.",
+                "The population grew faster than nearby farms could comfortably supply it, turning ordinary shortages into a recurring civic problem.",
+            ])
+        elif sector == "housing":
+            state["morale"] = clamp(state["morale"] - random.uniform(2.0, 5.0))
+            state["stability"] = clamp(state["stability"] - random.uniform(1.0, 3.5))
+            text = random.choice([
+                "Crowded housing became an ordinary source of complaint, with several districts packing more families into buildings meant for far fewer.",
+                "Families began doubling up in older neighborhoods as new housing failed to keep pace with the population.",
+                "Overcrowding pushed rents, disputes, and makeshift additions into everyday life across the busiest districts.",
+            ])
+        elif sector == "sanitation":
+            state["health"] = clamp(state["health"] - random.uniform(2.5, 6.0))
+            state["morale"] = clamp(state["morale"] - random.uniform(0.5, 2.5))
+            text = random.choice([
+                "The busiest districts began to outgrow their wells and drains, turning sanitation from a household nuisance into a public concern.",
+                "Crowded streets and overworked wells made waste and clean water increasingly difficult to manage in the largest settlements.",
+                "Sanitation problems that once stayed local began recurring across whole neighborhoods as the population pressed against older infrastructure.",
+            ])
+        else:
+            state["stability"] = clamp(state["stability"] - random.uniform(2.0, 5.0))
+            state["morale"] = clamp(state["morale"] - random.uniform(1.0, 3.0))
+            text = random.choice([
+                "Roads, storehouses, and market spaces built for a smaller population became persistent bottlenecks in daily life.",
+                "Traffic, storage, and market congestion became routine enough that moving ordinary goods across the settlements took noticeably longer.",
+                "The transport network began showing its age as larger crowds and heavier trade repeatedly overwhelmed routes built for a much smaller population.",
+            ])
+
+        state["demography"]["last_pressure_event_year"] = state["year"]
+        severe = ratios["overall"] > 1.12 or state["stability"] < 34 or state["food"] < 34
+        return self._add_event(state, "population_pressure", text, major=severe, notify=severe)
 
     def _event_conflict_or_recovery(self, state: dict[str, Any]) -> dict[str, Any]:
         if state["pressures"].get("unrest", 0) > 35:
@@ -855,6 +1213,7 @@ class TinyCivEngine:
         state["food"] = clamp(state["food"] + random.uniform(1.0, 4.0))
         state["knowledge"] = max(0.0, state["knowledge"] + random.uniform(1.0, 3.0))
         state["morale"] = clamp(state["morale"] + random.uniform(0.5, 2.5))
+        self._boost_capacity(state, food=random.uniform(0.025, 0.055), logistics=random.uniform(0.035, 0.065))
         return self._add_event(state, "foreign_exchange", random.choice(texts), major=True, notify=True)
 
     def _wider_world_ongoing(self, state: dict[str, Any], contact: dict[str, Any]) -> dict[str, Any]:
@@ -889,6 +1248,7 @@ class TinyCivEngine:
         if roll < 0.62:
             state["food"] = clamp(state["food"] + random.uniform(1.0, 4.5))
             state["morale"] = clamp(state["morale"] + random.uniform(0.5, 2.0))
+            self._boost_capacity(state, food=random.uniform(0.006, 0.020), logistics=random.uniform(0.008, 0.024))
             contact["relation"] = clamp(relation + random.uniform(1, 4))
             texts = [
                 f"A busy season of trade with {name} brought unfamiliar goods into local markets and carried local wares outward in return.",
@@ -968,30 +1328,55 @@ class TinyCivEngine:
 
     def _maybe_year_event(self, state: dict[str, Any]) -> dict[str, Any] | None:
         crisis = max(state["pressures"].get("scarcity", 0), state["pressures"].get("unrest", 0))
-        event_chance = clamp(0.28 + crisis * 0.0022, 0.26, 0.50)
+        ratios = self._demographic_ratios(state)
+        demographic_pressure = clamp(max(0.0, ratios["overall"] - 0.78) / 0.40, 0.0, 1.0)
+        population_scale = clamp(math.log10(max(10, state["population"])) - 2.0, 0.0, 3.0)
+        event_chance = clamp(
+            0.27 + crisis * 0.0020 + demographic_pressure * 0.11 + population_scale * 0.018,
+            0.26,
+            0.58,
+        )
         if random.random() > event_chance:
             return None
 
         choices: list[tuple[float, Callable[[dict[str, Any]], dict[str, Any]]]] = [
-            (13, self._event_harvest),
-            (8, self._event_illness),
-            (8, self._event_migration),
-            (12, self._event_discovery),
-            (7, self._event_festival),
-            (9, self._event_disaster),
-            (4, self._event_civic),
+            (12, self._event_harvest),
+            (7 + demographic_pressure * 8, self._event_illness),
+            (7 + demographic_pressure * 8, self._event_migration),
+            (11, self._event_discovery),
+            (6, self._event_festival),
+            (9 + population_scale * 0.8, self._event_disaster),
+            (4 + demographic_pressure * 5, self._event_civic),
             (6, self._event_notable),
-            (7, self._event_institution),
-            (9, self._event_public_works),
-            (9, self._event_exploration),
+            (7 + demographic_pressure * 2, self._event_institution),
+            (9 + demographic_pressure * 7, self._event_public_works),
+            (8, self._event_exploration),
             (9, self._event_economy),
-            (10, self._event_culture),
-            (4, self._event_settlement),
-            (5, self._event_conflict_or_recovery),
+            (9, self._event_culture),
+            (4 + demographic_pressure * 6, self._event_settlement),
+            (5 + demographic_pressure * 5, self._event_conflict_or_recovery),
         ]
         funcs = [f for _, f in choices]
         weights = [w for w, _ in choices]
         return random.choices(funcs, weights=weights, k=1)[0](state)
+
+    def _maybe_population_pressure_consequence(self, state: dict[str, Any]) -> dict[str, Any] | None:
+        d = state.get("demography", {})
+        ratios = self._demographic_ratios(state)
+        years_strained = int(d.get("years_strained", 0))
+        years_since = state["year"] - int(d.get("last_pressure_event_year", 0))
+        if years_strained < 4 or ratios["overall"] < 0.84 or years_since < 7:
+            return None
+        chance = clamp(
+            0.16
+            + min(years_strained, 14) * 0.012
+            + max(0.0, ratios["overall"] - 0.84) * 0.90,
+            0.18,
+            0.52,
+        )
+        if random.random() > chance:
+            return None
+        return self._event_population_pressure(state)
 
     def _maybe_governance_event(self, state: dict[str, Any]) -> dict[str, Any] | None:
         gov = state["governance"]
@@ -1109,6 +1494,10 @@ class TinyCivEngine:
         event = self._maybe_year_event(state)
         if event:
             generated.append(event)
+
+        pressure_event = self._maybe_population_pressure_consequence(state)
+        if pressure_event:
+            generated.append(pressure_event)
 
         wider_world_event = self._maybe_wider_world_event(state)
         if wider_world_event:

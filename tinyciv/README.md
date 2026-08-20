@@ -2,13 +2,13 @@
 
 A tiny autonomous civilization living inside Home Assistant.
 
-## Release 0.5.4
+## Release 0.5.5
 
-Tiny Chronicle hotfix: the observer-belief entry now resolves the civilization's root settlement name correctly instead of ever exposing the internal `{root}` placeholder.
+Population growth now regulates itself naturally instead of behaving like an endless exponential curve. There is still no hard population cap: a civilization can keep growing whenever its food supply, housing, sanitation, transport, settlements, institutions, trade, and technology expand enough to support it.
 
-Existing Chronicle history is preserved. If that literal placeholder was already written into a civilization's Chronicle, TinyCiv repairs the saved entry automatically when the updated state is loaded.
+As population presses against what the civilization can comfortably sustain, growth slows and ordinary strain begins affecting food, health, morale, stability, migration, disease, and the kinds of historically significant events that reach the Chronicle. Successful expansion and public improvements can open another period of growth.
 
-No simulation balance, event frequency, observer controls, or other behavior has changed.
+Existing civilizations migrate safely into the new model without an abrupt artificial crisis, and all existing Chronicle history is preserved. No observer controls or UI mechanics were added.
 
 ## Install / update
 
