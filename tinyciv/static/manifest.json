@@ -2,7 +2,7 @@
   "id": "./",
   "name": "TinyCiv",
   "short_name": "TinyCiv",
-  "description": "A tiny autonomous civilization living inside Home Assistant.",
+  "description": "A tiny autonomous self-hosted civilization simulation.",
   "start_url": ".",
   "scope": ".",
   "display": "standalone",
@@ -25,12 +25,6 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
-    },
-    {
-      "src": "icon-512-maskable.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "maskable"
     }
   ]
 }

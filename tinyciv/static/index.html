@@ -13,14 +13,14 @@
   <title>TinyCiv</title>
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icon-192.png" sizes="192x192">
-  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="apple-touch-icon" href="icon-192.png">
   <link rel="stylesheet" href="app.css">
 </head>
 <body>
   <main class="shell">
     <header class="masthead">
       <div>
-        <p class="eyebrow">HOME ASSISTANT CIVILIZATION ARCHIVE</p>
+        <p class="eyebrow">AUTONOMOUS CIVILIZATION ARCHIVE</p>
         <h1>TinyCiv</h1>
       </div>
       <div class="year-block">
@@ -70,28 +70,6 @@
       <nav id="chronicle-pages" class="chronicle-pages" aria-label="Chronicle pages"></nav>
     </section>
 
-    <section class="paper notification-card">
-      <div class="notification-heading">
-        <div>
-          <p class="label">OBSERVER NOTIFICATIONS</p>
-          <h3>Chronicle alerts</h3>
-        </div>
-        <label class="notification-toggle">
-          <input id="notifications-enabled" type="checkbox" checked>
-          <span>On</span>
-        </label>
-      </div>
-      <p class="muted notification-copy">If a civilization year produces any new Chronicle entry, Home Assistant sends one spoiler-free alert. Nothing happened? TinyCiv stays quiet.</p>
-      <div class="notification-controls">
-        <label for="notification-target">Deliver to</label>
-        <select id="notification-target">
-          <option value="">Looking for Home Assistant notification targets…</option>
-        </select>
-        <button id="notification-test" type="button">Send test notification</button>
-      </div>
-      <p id="notification-status" class="notification-status muted">Checking Home Assistant…</p>
-    </section>
-
     <details class="danger-zone">
       <summary>World-ending administrative tools</summary>
       <div class="danger-inner">
@@ -105,7 +83,6 @@
       <div class="version">TinyCiv v__TINYCIV_VERSION__</div>
     </footer>
   </main>
-
   <script src="app.js"></script>
 </body>
 </html>

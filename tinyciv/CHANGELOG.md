@@ -1,3 +1,14 @@
+# TinyCiv 0.5.7
+
+- Converted the active TinyCiv runtime into a standalone self-hosted web service.
+- Removed the previous notification backend and notification-target discovery.
+- Removed the Observer Notifications card from the web UI.
+- Existing queued observer-notification jobs are acknowledged silently so future Web Push starts cleanly with new Chronicle events.
+- Replaced old host-specific branding in the web UI, PWA manifest, and documentation.
+- Added Python cache exclusions so generated `__pycache__` / `.pyc` files no longer interfere with Git updates.
+- Civilization simulation behavior remains unchanged from 0.5.6; existing worlds and Chronicle history are preserved.
+- PWA Web Push is planned after HTTPS is configured.
+
 # TinyCiv 0.5.6
 
 - Broke Tinkerfen out of the centuries-long Machine Age plateau with a concrete technology chain extending through electrification, telegraphy, engines, industrial chemistry, radio, flight, antibiotics, electronics, digital computing, orbital rocketry, networking, satellites, grid storage, and reusable orbital launch.
@@ -9,8 +20,3 @@
 - Discovery and development events receive much higher priority once old progression has been exhausted.
 - Generic prosperity wording was replaced with a more concrete historical consequence.
 - Existing worlds migrate in place. Tinkerfen's history, population, contacts, settlements, and Chronicle are preserved.
-
-# TinyCiv 0.5.5
-
-- Replaced effectively unbounded exponential population growth with a dynamic, self-regulating carrying-capacity model.
-- There is no hard maximum population. Capacity can continue expanding indefinitely through development, technology, trade, public works, and new settlements.

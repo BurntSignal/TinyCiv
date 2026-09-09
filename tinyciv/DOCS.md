@@ -1,14 +1,19 @@
 # TinyCiv
 
-TinyCiv runs autonomously. Open its web interface to observe the current civilization and chronicle.
+TinyCiv runs autonomously. Open its web interface to observe the current civilization and Chronicle.
 
-One real hour equals one TinyCiv year. State is persistent across restarts and updates. The direct web port remains 8787, and Home Assistant Ingress is also supported.
+One real hour equals one TinyCiv year. State is persistent across restarts and application updates.
 
-The world-ending administrative control is intentionally destructive. Use it only when you mean to begin a new civilization.
+## Hosting
 
+TinyCiv is a standalone self-hosted web service. The application listens on port `8787` by default and stores persistent civilization state in the directory configured by `TINYCIV_DATA_DIR`.
 
 ## Observer notifications
 
-When enabled, TinyCiv checks each civilization year for new Chronicle entries. A year with one or more entries produces exactly one spoiler-free alert: “A new chronicle entry has occurred!”
+The previous observer-notification integration was removed in 0.5.7 as part of the standalone migration.
 
-Home Assistant 2026.5+ Companion App devices can appear as notify entities. TinyCiv discovers those entities automatically. A single target is selected automatically; if multiple targets exist, choose one from the Observer Notifications card.
+Push notifications are intentionally disabled for now. A future HTTPS release will use PWA Web Push directly.
+
+## Destructive control
+
+The world-ending administrative control is intentionally destructive. Use it only when you mean to begin a new civilization.
