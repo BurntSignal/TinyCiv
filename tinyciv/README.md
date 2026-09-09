@@ -2,7 +2,7 @@
 
 A tiny autonomous civilization living inside Home Assistant.
 
-## Release 0.5.5
+## Release 0.5.6
 
 Population growth now regulates itself naturally instead of behaving like an endless exponential curve. There is still no hard population cap: a civilization can keep growing whenever its food supply, housing, sanitation, transport, settlements, institutions, trade, and technology expand enough to support it.
 

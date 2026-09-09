@@ -14,7 +14,7 @@ from typing import Any, Callable
 YEAR_SECONDS = int(os.getenv("TINYCIV_YEAR_SECONDS", "3600"))
 DATA_DIR = Path(os.getenv("TINYCIV_DATA_DIR", "/data"))
 STATE_PATH = DATA_DIR / "tinyciv_state.json"
-WORLD_SCHEMA = 7
+WORLD_SCHEMA = 8
 
 SETTLEMENT_NAMES = [
     "Mossvale", "Brasswick", "Fernhollow", "Emberford", "Tinkerfen",
@@ -57,6 +57,21 @@ DISCOVERIES = [
     ("optical glass", 72),
     ("steam pressure", 82),
     ("electrical induction", 91),
+    ("practical dynamos", 108),
+    ("electrical distribution", 124),
+    ("telegraphy", 140),
+    ("internal combustion", 158),
+    ("industrial chemistry", 176),
+    ("radio transmission", 198),
+    ("powered flight", 220),
+    ("antibiotics", 244),
+    ("semiconductor electronics", 270),
+    ("digital computation", 300),
+    ("orbital rocketry", 334),
+    ("computer networking", 370),
+    ("satellite navigation", 410),
+    ("renewable grid storage", 455),
+    ("reusable orbital launch", 505),
 ]
 
 INSTITUTIONS = [
@@ -163,6 +178,19 @@ class TinyCivEngine:
     def _era(self, state: dict[str, Any]) -> str:
         pop = state["population"]
         knowledge = state["knowledge"]
+        known = set(state.get("discoveries", []))
+        # Later eras are tied to concrete capabilities, not a percentage-like
+        # knowledge score. A civilization must actually build its way forward.
+        if "reusable orbital launch" in known:
+            return "Space Age"
+        if "computer networking" in known:
+            return "Information Age"
+        if "semiconductor electronics" in known:
+            return "Electronic Age"
+        if "radio transmission" in known:
+            return "Modern Age"
+        if "practical dynamos" in known:
+            return "Industrial Age"
         if pop >= 1200 and knowledge >= 82:
             return "Machine Age"
         if pop >= 550 and knowledge >= 62:
@@ -359,6 +387,8 @@ class TinyCivEngine:
                 "public_works": [],
                 "geography": [],
                 "economic_changes": [],
+                "development_threads": {},
+                "last_kind_year": {},
             },
             "pressures": {
                 "scarcity": 0.0,
@@ -443,6 +473,8 @@ class TinyCivEngine:
                 "public_works": [],
                 "geography": [],
                 "economic_changes": [],
+                "development_threads": {},
+                "last_kind_year": {},
             },
             "pressures": {"scarcity": 0.0, "unrest": 0.0, "recovery": 0.0},
             "pending_notification_years": [],
@@ -472,6 +504,10 @@ class TinyCivEngine:
         for key in ("traditions", "public_works", "geography", "economic_changes"):
             if key not in memory or not isinstance(memory.get(key), list):
                 memory[key] = []
+                changed = True
+        for key in ("development_threads", "last_kind_year"):
+            if key not in memory or not isinstance(memory.get(key), dict):
+                memory[key] = {}
                 changed = True
 
         if "wider_world" not in state or not isinstance(state.get("wider_world"), dict):
@@ -566,6 +602,8 @@ class TinyCivEngine:
             "notify": notify,
         }
         state["chronicle"].append(event)
+        memory = state.setdefault("civilization_memory", {})
+        memory.setdefault("last_kind_year", {})[kind] = int(state["year"])
         return event
 
     def _update_pressures(self, state: dict[str, Any]) -> None:
@@ -783,43 +821,45 @@ class TinyCivEngine:
             f"Travelers arrived and chose to remain. The population grew by {gain}.",
         )
 
-    def _event_discovery(self, state: dict[str, Any]) -> dict[str, Any]:
-        available = [d for d in DISCOVERIES if d[0] not in state["discoveries"] and state["knowledge"] >= d[1] - 7]
-        if available:
-            name, threshold = random.choice(available)
-            state["discoveries"].append(name)
-            state["knowledge"] = max(state["knowledge"], threshold) + random.uniform(1.5, 4.5)
-            discovery_boosts = {
-                "crop rotation": {"food": 0.10},
-                "kiln-fired brick": {"housing": 0.07},
-                "water-driven milling": {"food": 0.045, "logistics": 0.025},
-                "formal surveying": {"housing": 0.035, "logistics": 0.045},
-                "movable type": {"logistics": 0.025, "sanitation": 0.015},
-                "precision gearing": {"logistics": 0.055},
-                "mechanical pumping": {"sanitation": 0.09, "food": 0.035},
-                "standardized measures": {"logistics": 0.075},
-                "optical glass": {"sanitation": 0.025},
-                "steam pressure": {"logistics": 0.085, "food": 0.025},
-                "electrical induction": {"logistics": 0.09, "sanitation": 0.045},
-            }
-            self._boost_capacity(state, **discovery_boosts.get(name, {}))
-            return self._add_event(
-                state,
-                "discovery",
-                f"A breakthrough in {name} spread from workshop to workshop and changed ordinary life.",
-                major=threshold >= 64,
-                notify=threshold >= 82,
-            )
-        state["knowledge"] = max(0.0, state["knowledge"] + random.uniform(2.0, 5.0))
-        return self._add_event(
-            state,
-            "discovery",
-            random.choice([
-                "A stubborn practical problem was finally solved, and the method spread quickly between households and workshops.",
-                "A practical technique that had existed in fragments was finally understood well enough to teach reliably.",
-                "Several small improvements came together into a method useful enough that people began copying it almost immediately.",
-            ]),
-        )
+    def _event_discovery(self, state: dict[str, Any]) -> dict[str, Any] | None:
+        # Discoveries form a chain. High abstract knowledge can make the next
+        # breakthrough likely, but it cannot skip centuries of prerequisites.
+        known = set(state["discoveries"])
+        available = []
+        for idx, item in enumerate(DISCOVERIES):
+            name, threshold = item
+            if name in known or state["knowledge"] < threshold - 7:
+                continue
+            if idx and DISCOVERIES[idx - 1][0] not in known:
+                continue
+            available.append(item)
+        if not available:
+            return None
+
+        name, threshold = available[0]
+        state["discoveries"].append(name)
+        state["knowledge"] = max(state["knowledge"], threshold) + random.uniform(1.5, 4.5)
+        texts = {
+            "practical dynamos": "Engineers turned electrical induction into practical dynamos, allowing workshops to generate useful power instead of merely demonstrating it.",
+            "electrical distribution": "The first local power networks linked generators to streets and workshops. Electric light began pushing ordinary activity beyond sunset.",
+            "telegraphy": "Wires carrying coded electrical pulses connected distant settlements, collapsing journeys of days into messages delivered within minutes.",
+            "internal combustion": "Compact fuel-burning engines escaped the workshop bench and began powering pumps, machinery, and the first self-propelled vehicles.",
+            "industrial chemistry": "Chemical production moved from craft recipes to controlled industrial processes, transforming fertilizers, dyes, medicines, and manufactured materials.",
+            "radio transmission": "Experimenters sent intelligible signals through the air without wires. Within years, distant settlements were listening to the same broadcasts.",
+            "powered flight": "A heavier-than-air machine completed a controlled powered flight, turning the sky from a boundary into a new route.",
+            "antibiotics": "Healers isolated treatments capable of stopping infections that had killed generations of Tinkerfen citizens.",
+            "semiconductor electronics": "Tiny solid-state components began replacing bulky electrical mechanisms, making reliable electronics smaller, faster, and easier to reproduce.",
+            "digital computation": "Programmable electronic machines began performing calculations and record work at speeds no human office could match.",
+            "orbital rocketry": "A rocket built in Tinkerfen crossed beyond the atmosphere and placed an instrument into orbit around the world.",
+            "computer networking": "Separate computers were linked into a common data network, allowing information to move between institutions almost instantly.",
+            "satellite navigation": "A constellation of orbital transmitters made precise position and time available anywhere with a receiver.",
+            "renewable grid storage": "Large-scale energy storage made intermittent wind and sunlight dependable enough to support the wider electrical grid.",
+            "reusable orbital launch": "A launch vehicle returned from orbit and flew again, changing spaceflight from rare national spectacle into repeatable infrastructure.",
+        }
+        old_text = f"A breakthrough in {name} spread from workshop to workshop and changed ordinary life."
+        text = texts.get(name, old_text)
+        self._boost_capacity(state, logistics=0.045, sanitation=0.018, food=0.012, housing=0.012)
+        return self._add_event(state, "discovery", text, major=True, notify=True)
 
     def _event_public_works(self, state: dict[str, Any]) -> dict[str, Any]:
         memory = state["civilization_memory"]["public_works"]
@@ -863,12 +903,7 @@ class TinyCivEngine:
             and state["knowledge"] >= item[2] - 5
         ]
         if not eligible:
-            state["knowledge"] = max(0.0, state["knowledge"] + random.uniform(0.8, 2.2))
-            return self._add_event(
-                state,
-                "exploration",
-                "A long-ranging party returned with corrected routes and descriptions of country that had existed only as rumor on earlier maps.",
-            )
+            return None
 
         key, _, _, text = random.choice(eligible)
         memory.append(key)
@@ -1155,8 +1190,60 @@ class TinyCivEngine:
         return self._add_event(
             state,
             "recovery",
-            "Several uneventful seasons accumulated into something rare: broad, unmistakable prosperity.",
+            "A long period of stability left storehouses healthy, public finances sound, and most districts better prepared for the next crisis than the last.",
         )
+
+    def _event_development_thread(self, state: dict[str, Any]) -> dict[str, Any] | None:
+        """Advance a consequence chain rooted in things this civilization actually did."""
+        known = set(state.get("discoveries", []))
+        traditions = set(state.get("civilization_memory", {}).get("traditions", []))
+        threads = state["civilization_memory"].setdefault("development_threads", {})
+        candidates: list[tuple[str, list[str]]] = []
+
+        if "electrical distribution" in known:
+            candidates.append(("electrification", [
+                "Electric lighting spread through the busiest streets, changing work hours, public safety, and the rhythm of evenings across Tinkerfen.",
+                "Factories began replacing belts and central shafts with individual electric motors, allowing machinery to be rearranged around the work instead of the power source.",
+                "After fires and electrocutions exposed the dangers of improvised wiring, Tinkerfen adopted its first common electrical safety code.",
+            ]))
+        if "internal combustion" in known:
+            candidates.append(("motorization", [
+                "Motor vehicles became common enough that roads designed for carts could no longer safely carry the traffic, forcing the first systematic rebuilding of major routes.",
+                "Freight increasingly moved by motor vehicle instead of animal power, tying distant farms and workshops more tightly to the largest markets.",
+                "Crowded streets brought noise, injuries, and exhaust with them; traffic rules and dedicated pedestrian ways became a new civic necessity.",
+            ]))
+        if "radio transmission" in known:
+            candidates.append(("mass_media", [
+                "Regular radio broadcasting began, giving thousands of households the same news, music, and arguments at the same hour for the first time.",
+                "Political speakers learned that a microphone could reach more citizens than any public square. Campaigns and civic debate changed almost overnight.",
+                "A generation raised with broadcasting began sharing fashions, jokes, and music across settlements whose local cultures had once developed largely apart.",
+            ]))
+        if "digital computation" in known:
+            candidates.append(("computing", [
+                "Government offices and large workshops began moving records onto computers, eliminating entire rooms of ledgers while creating a new dependence on machines few people understood.",
+                "Computer-controlled machinery entered workshops, allowing complicated parts to be produced with a precision once reserved for master craftworkers.",
+                "As databases grew, arguments over who could collect, copy, and inspect personal records produced Tinkerfen's first broad privacy rules.",
+            ]))
+        if "computer networking" in known:
+            candidates.append(("network_society", [
+                "Public access to the computer network spread beyond institutions. Messages, markets, news, and rumors began crossing Tinkerfen faster than authorities could comfortably follow them.",
+                "Commerce moved onto the network, creating businesses with customers scattered across the Commonwealth and weakening the old importance of physical market districts.",
+                "A major network failure disrupted trade, records, and communications at once, revealing how thoroughly ordinary life had come to depend on invisible infrastructure.",
+            ]))
+        if "watcher_belief" in traditions:
+            candidates.append(("watcher_faith", [
+                "Rooftop offerings to the unseen Watcher coalesced into organized congregations, though no agreement emerged over what the Watcher wanted—or whether it wanted anything at all.",
+                "A reform movement within the Watcher faith argued that observation itself, not offerings, was sacred. Traditionalists denounced the idea, beginning Tinkerfen's first lasting religious schism.",
+                "Astronomers and Watcher theologians publicly clashed over whether the heavens showed evidence of an observing presence. The debate filled lecture halls for years without settling the question.",
+            ]))
+
+        unfinished = [(key, texts) for key, texts in candidates if int(threads.get(key, 0)) < len(texts)]
+        if not unfinished:
+            return None
+        key, texts = random.choice(unfinished)
+        stage = int(threads.get(key, 0))
+        threads[key] = stage + 1
+        return self._add_event(state, "development", texts[stage], major=stage == len(texts) - 1, notify=stage == len(texts) - 1)
 
     def _new_wider_world_contact(self, state: dict[str, Any]) -> dict[str, Any]:
         wider = state["wider_world"]
@@ -1339,26 +1426,43 @@ class TinyCivEngine:
         if random.random() > event_chance:
             return None
 
-        choices: list[tuple[float, Callable[[dict[str, Any]], dict[str, Any]]]] = [
-            (12, self._event_harvest),
+        memory = state["civilization_memory"]
+        last_kind = memory.setdefault("last_kind_year", {})
+        def cooled(kind: str, years: int) -> bool:
+            return state["year"] - int(last_kind.get(kind, -9999)) >= years
+
+        choices: list[tuple[float, Callable[[dict[str, Any]], dict[str, Any] | None]]] = [
+            (7, self._event_harvest),
             (7 + demographic_pressure * 8, self._event_illness),
-            (7 + demographic_pressure * 8, self._event_migration),
-            (11, self._event_discovery),
-            (6, self._event_festival),
-            (9 + population_scale * 0.8, self._event_disaster),
+            (5 + demographic_pressure * 7, self._event_migration),
+            (18, self._event_discovery),
+            (2 if cooled("festival", 35) else 0, self._event_festival),
+            (8 + population_scale * 0.8, self._event_disaster),
             (4 + demographic_pressure * 5, self._event_civic),
             (6, self._event_notable),
-            (7 + demographic_pressure * 2, self._event_institution),
-            (9 + demographic_pressure * 7, self._event_public_works),
-            (8, self._event_exploration),
-            (9, self._event_economy),
-            (9, self._event_culture),
-            (4 + demographic_pressure * 6, self._event_settlement),
+            (6 + demographic_pressure * 2, self._event_institution),
+            (7 + demographic_pressure * 7, self._event_public_works),
+            (4 if cooled("exploration", 18) else 0, self._event_exploration),
+            (4 if cooled("economy", 12) else 0, self._event_economy),
+            (4 if cooled("culture", 20) else 0, self._event_culture),
+            (5 + demographic_pressure * 6, self._event_settlement),
             (5 + demographic_pressure * 5, self._event_conflict_or_recovery),
+            (15 if cooled("development", 6) else 0, self._event_development_thread),
         ]
-        funcs = [f for _, f in choices]
-        weights = [w for w, _ in choices]
-        return random.choices(funcs, weights=weights, k=1)[0](state)
+        choices = [(w, f) for w, f in choices if w > 0]
+        # A selected category may have exhausted its historically meaningful
+        # material. Try a few alternatives rather than printing filler.
+        for _ in range(4):
+            funcs = [f for _, f in choices]
+            weights = [w for w, _ in choices]
+            fn = random.choices(funcs, weights=weights, k=1)[0]
+            event = fn(state)
+            if event is not None:
+                return event
+            choices = [(w, f) for w, f in choices if f is not fn]
+            if not choices:
+                break
+        return None
 
     def _maybe_population_pressure_consequence(self, state: dict[str, Any]) -> dict[str, Any] | None:
         d = state.get("demography", {})
