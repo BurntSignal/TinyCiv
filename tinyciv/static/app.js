@@ -2,6 +2,7 @@ const $ = (id) => document.getElementById(id);
 
 const VISIT_REFRESH_AFTER_MS = 5 * 60 * 1000;
 const CHRONICLE_PAGE_SIZE = 12;
+let serviceWorkerRegistration = null;
 let hiddenAt = null;
 let visitBaseline = null;
 let chroniclePage = 1;
@@ -273,6 +274,190 @@ $("nuke-button").addEventListener("click", async () => {
   }
 });
 
+
+function isStandaloneWebApp() {
+  return window.matchMedia("(display-mode: standalone)").matches ||
+    window.navigator.standalone === true;
+}
+
+function urlBase64ToUint8Array(value) {
+  const padding = "=".repeat((4 - (value.length % 4)) % 4);
+  const base64 = (value + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map((char) => char.charCodeAt(0)));
+}
+
+async function currentPushSubscription() {
+  if (!serviceWorkerRegistration) return null;
+  return serviceWorkerRegistration.pushManager.getSubscription();
+}
+
+async function refreshPushUI() {
+  const status = $("push-status");
+  const toggle = $("push-toggle");
+  const test = $("push-test");
+  if (!status || !toggle || !test) return;
+
+  if (!window.isSecureContext) {
+    status.textContent = "Push requires HTTPS.";
+    toggle.hidden = true;
+    test.hidden = true;
+    return;
+  }
+
+  if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
+    status.textContent = "Web Push is not supported on this device.";
+    toggle.hidden = true;
+    test.hidden = true;
+    return;
+  }
+
+  if (!isStandaloneWebApp() && /iPhone|iPad|iPod/.test(navigator.userAgent)) {
+    status.textContent = "On iPhone/iPad, open the installed TinyCiv Home Screen app to enable alerts.";
+    toggle.textContent = "Open the Home Screen app";
+    toggle.disabled = true;
+    test.hidden = true;
+    return;
+  }
+
+  if (Notification.permission === "denied") {
+    status.textContent = "Notifications are blocked in system settings.";
+    toggle.textContent = "Notifications blocked";
+    toggle.disabled = true;
+    test.hidden = true;
+    return;
+  }
+
+  const subscription = await currentPushSubscription();
+  if (subscription) {
+    status.textContent = "Chronicle alerts are enabled on this device.";
+    toggle.textContent = "Disable notifications";
+    toggle.disabled = false;
+    toggle.dataset.mode = "disable";
+    test.hidden = false;
+  } else {
+    status.textContent = "Get an alert when TinyCiv records a noteworthy Chronicle event.";
+    toggle.textContent = "Enable notifications";
+    toggle.disabled = false;
+    toggle.dataset.mode = "enable";
+    test.hidden = true;
+  }
+}
+
+async function enablePush() {
+  // This function is called directly from the user's button tap so iOS can
+  // legally present its notification permission prompt.
+  const permission = await Notification.requestPermission();
+  if (permission !== "granted") {
+    await refreshPushUI();
+    return;
+  }
+
+  const registration = serviceWorkerRegistration || await navigator.serviceWorker.ready;
+  serviceWorkerRegistration = registration;
+
+  const keyPayload = await getJSON("api/push/vapid-public-key");
+  const subscription = await registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: urlBase64ToUint8Array(keyPayload.public_key),
+  });
+
+  await getJSON("api/push/subscribe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(subscription.toJSON()),
+  });
+
+  await refreshPushUI();
+}
+
+async function disablePush() {
+  const subscription = await currentPushSubscription();
+  if (!subscription) {
+    await refreshPushUI();
+    return;
+  }
+
+  await getJSON("api/push/unsubscribe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ endpoint: subscription.endpoint }),
+  });
+
+  await subscription.unsubscribe();
+  await refreshPushUI();
+}
+
+async function sendTestPush() {
+  const subscription = await currentPushSubscription();
+  if (!subscription) {
+    await refreshPushUI();
+    return;
+  }
+
+  await getJSON("api/push/test", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ endpoint: subscription.endpoint }),
+  });
+}
+
+async function initializePush() {
+  if (!("serviceWorker" in navigator) || !window.isSecureContext) {
+    await refreshPushUI();
+    return;
+  }
+
+  try {
+    serviceWorkerRegistration = await navigator.serviceWorker.register("sw.js");
+    await navigator.serviceWorker.ready;
+  } catch (error) {
+    console.error("TinyCiv service worker registration failed:", error);
+  }
+
+  try {
+    await refreshPushUI();
+  } catch (error) {
+    console.error("TinyCiv push status failed:", error);
+  }
+}
+
+$("push-toggle")?.addEventListener("click", async () => {
+  const button = $("push-toggle");
+  button.disabled = true;
+  try {
+    if (button.dataset.mode === "disable") {
+      await disablePush();
+    } else {
+      await enablePush();
+    }
+  } catch (error) {
+    console.error(error);
+    alert(`TinyCiv could not change notification settings: ${error.message}`);
+  } finally {
+    await refreshPushUI();
+  }
+});
+
+$("push-test")?.addEventListener("click", async () => {
+  const button = $("push-test");
+  button.disabled = true;
+  button.textContent = "Sending...";
+  try {
+    await sendTestPush();
+    button.textContent = "Test sent";
+    setTimeout(() => {
+      button.textContent = "Send test";
+      button.disabled = false;
+    }, 1500);
+  } catch (error) {
+    console.error(error);
+    alert(`TinyCiv could not send the test notification: ${error.message}`);
+    button.textContent = "Send test";
+    button.disabled = false;
+  }
+});
+
 window.addEventListener("online", refreshState);
 window.addEventListener("offline", () => setConnectionStatus(false));
 
@@ -296,9 +481,6 @@ if (window.matchMedia("(display-mode: standalone)").matches || window.navigator.
   document.documentElement.classList.add("standalone");
 }
 
-if ("serviceWorker" in navigator && window.isSecureContext) {
-  navigator.serviceWorker.register("sw.js").catch(console.error);
-}
-
 initialLoad();
+initializePush();
 setInterval(refreshState, 60_000);

@@ -2,11 +2,13 @@
 
 A tiny autonomous self-hosted civilization.
 
-## Release 0.5.7
+## Release 0.5.8
 
-TinyCiv now runs as a standalone web service. The old observer-notification backend and notification UI have been removed. Chronicle push notifications will return later using native PWA Web Push once HTTPS is configured.
+TinyCiv can now send standards-based Web Push notifications directly to installed HTTPS PWAs. Notification subscriptions and the VAPID private key are stored in `TINYCIV_DATA_DIR`, outside the Git repository.
 
-The civilization simulation itself is unchanged from 0.5.6. Existing state and Chronicle history remain in the external data directory configured by `TINYCIV_DATA_DIR`.
+Open the installed TinyCiv PWA and tap **Enable notifications**. On iPhone/iPad, notification permission must be requested from the installed Home Screen web app. Use **Send test** to verify delivery immediately.
+
+Only Chronicle events already marked by the simulation as noteworthy (`notify: true`) generate push alerts.
 
 ## Deployment
 

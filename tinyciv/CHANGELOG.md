@@ -1,3 +1,15 @@
+# TinyCiv 0.5.8
+
+- Added standards-based Web Push notifications for HTTPS-installed PWAs.
+- Added in-app **Enable notifications**, **Disable notifications**, and **Send test** controls.
+- Added persistent Web Push subscriptions and a persistent VAPID key under `TINYCIV_DATA_DIR`.
+- Added service-worker handling for incoming push notifications and notification taps.
+- Uses the simulation's existing `notify: true` flag so routine Chronicle events do not spam the observer.
+- Groups multiple noteworthy events from the same civilization year into one alert.
+- Removes stale push subscriptions automatically when the push service reports them gone.
+- Added `pywebpush` as the sole new Python package dependency.
+- Bumped the PWA cache to 0.5.8.
+
 # TinyCiv 0.5.7
 
 - Converted the active TinyCiv runtime into a standalone self-hosted web service.

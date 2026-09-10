@@ -8,11 +8,18 @@ One real hour equals one TinyCiv year. State is persistent across restarts and a
 
 TinyCiv is a standalone self-hosted web service. The application listens on port `8787` by default and stores persistent civilization state in the directory configured by `TINYCIV_DATA_DIR`.
 
-## Observer notifications
+## Web Push notifications
 
-The previous observer-notification integration was removed in 0.5.7 as part of the standalone migration.
+TinyCiv can deliver Chronicle alerts directly through standards-based Web Push.
 
-Push notifications are intentionally disabled for now. A future HTTPS release will use PWA Web Push directly.
+Requirements:
+- serve TinyCiv over trusted HTTPS;
+- install/open TinyCiv as a Home Screen PWA on iPhone/iPad;
+- tap **Enable notifications** inside the PWA and allow the system permission prompt.
+
+Push subscriptions are stored in `push_subscriptions.json` and the generated VAPID private key in `vapid_private_key.pem`, both under `TINYCIV_DATA_DIR`.
+
+Use **Send test** after subscribing to verify the complete push path.
 
 ## Destructive control
 
